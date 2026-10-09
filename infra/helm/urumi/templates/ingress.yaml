@@ -1,0 +1,45 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "urumi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "urumi.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.hosts.shop | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "urumi.fullname" . }}-wordpress
+                port:
+                  number: {{ .Values.wordpress.port }}
+    - host: api.urumi.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: {{ .Values.gateway.service.port }}
+{{- end }}
+
+    - host: dashboard.urumi.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: urumi-dashboard
+                port:
+                  number: 80

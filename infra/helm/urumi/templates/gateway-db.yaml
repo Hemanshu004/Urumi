@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "urumi.fullname" . }}-gateway-db
+  labels:
+    {{- include "urumi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-db
+spec:
+  serviceName: gateway-db
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "urumi.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway-db
+  template:
+    metadata:
+      labels:
+        {{- include "urumi.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway-db
+    spec:
+      serviceAccountName: urumi-sa
+      containers:
+        - name: postgres
+          image: "{{ .Values.gatewayDb.image.repository }}:{{ .Values.gatewayDb.image.tag }}"
+          imagePullPolicy: {{ .Values.gatewayDb.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.gatewayDb.auth.username }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "urumi.secretName" . }}
+                  key: gateway-db-password
+            - name: POSTGRES_DB
+              value: {{ .Values.gatewayDb.auth.database }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.gatewayDb.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-db
+  labels:
+    {{- include "urumi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-db
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    {{- include "urumi.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-db

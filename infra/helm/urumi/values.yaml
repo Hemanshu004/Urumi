@@ -1,0 +1,104 @@
+# ============================================================
+# Urumi Helm Chart - Default Values
+# ============================================================
+
+# -- WordPress
+wordpress:
+  image:
+    repository: wordpress
+    tag: "6.7-apache"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 80
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -- MariaDB (WordPress database)
+wordpressDb:
+  image:
+    repository: mariadb
+    tag: "11"
+    pullPolicy: IfNotPresent
+  port: 3306
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -- Database configuration (non-sensitive)
+database:
+  name: wordpress
+  user: wordpress
+
+# -- Ingress
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    shop: shop.urumi.local
+
+# -- Secrets
+# If empty, passwords are auto-generated on first install.
+# On helm upgrade, existing secrets are preserved via lookup.
+
+llm:
+  provider: "openai"
+  baseUrl: "https://api.groq.com/openai/v1"
+  model: "openai/gpt-oss-120b"
+
+secrets:
+
+  wordpressDbRootPassword: ""
+  wordpressDbPassword: ""
+
+wooMcp:
+  image:
+    repository: urumi-woo-mcp
+    tag: latest
+    pullPolicy: Never
+  service:
+    port: 3001
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+
+gatewayDb:
+  image:
+    repository: postgres
+    tag: 15-alpine
+    pullPolicy: IfNotPresent
+  auth:
+    username: urumi
+    database: urumi_gateway
+  persistence:
+    size: 2Gi
+
+gateway:
+  image:
+    repository: urumi-gateway
+    tag: latest
+    pullPolicy: Never
+  service:
+    port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi

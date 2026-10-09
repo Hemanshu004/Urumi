@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urumi-dashboard
+  labels:
+    app: urumi-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: urumi-dashboard
+  template:
+    metadata:
+      labels:
+        app: urumi-dashboard
+    spec:
+      serviceAccountName: urumi-sa
+      containers:
+        - name: dashboard
+          image: "urumi-dashboard:latest"
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urumi-dashboard
+  labels:
+    app: urumi-dashboard
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: urumi-dashboard

@@ -1,0 +1,5 @@
+{{/*
+  Namespace is created by helm upgrade --install with --create-namespace.
+  This template intentionally produces no resources to avoid conflicts.
+  Future phases may add namespace labels or annotations here.
+*/}}

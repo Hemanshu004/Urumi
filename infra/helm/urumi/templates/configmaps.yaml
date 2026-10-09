@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "urumi.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "urumi.labels" . | nindent 4 }}
+data:
+  # Database connection (non-sensitive)
+  WORDPRESS_DB_HOST: "{{ include "urumi.fullname" . }}-wordpress-db:{{ .Values.wordpressDb.port }}"
+  WORDPRESS_DB_NAME: {{ .Values.database.name | quote }}
+  WORDPRESS_DB_USER: {{ .Values.database.user | quote }}

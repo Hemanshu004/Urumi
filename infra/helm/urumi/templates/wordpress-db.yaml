@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "urumi.fullname" . }}-wordpress-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "urumi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  serviceName: {{ include "urumi.fullname" . }}-wordpress-db
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "urumi.labels" . | nindent 6 }}
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        {{- include "urumi.labels" . | nindent 8 }}
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+        - name: mariadb
+          image: "{{ .Values.wordpressDb.image.repository }}:{{ .Values.wordpressDb.image.tag }}"
+          imagePullPolicy: {{ .Values.wordpressDb.image.pullPolicy }}
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "urumi.secretName" . }}
+                  key: mariadb-root-password
+            - name: MARIADB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "urumi.fullname" . }}-config
+                  key: WORDPRESS_DB_USER
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "urumi.secretName" . }}
+                  key: mariadb-password
+            - name: MARIADB_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "urumi.fullname" . }}-config
+                  key: WORDPRESS_DB_NAME
+          ports:
+            - name: mysql
+              containerPort: 3306
+          livenessProbe:
+            exec:
+              command:
+                - mariadb-admin
+                - ping
+                - -h
+                - localhost
+                - -u
+                - root
+                - -p$(MARIADB_ROOT_PASSWORD)
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - mariadb-admin
+                - ping
+                - -h
+                - localhost
+                - -u
+                - root
+                - -p$(MARIADB_ROOT_PASSWORD)
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.wordpressDb.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Values.wordpressDb.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "urumi.fullname" . }}-wordpress-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "urumi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.wordpressDb.port }}
+      targetPort: mysql
+      protocol: TCP
+      name: mysql
+  selector:
+    {{- include "urumi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
