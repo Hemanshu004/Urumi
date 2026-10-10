@@ -96,3 +96,11 @@ To fully utilize the chat agent and external integrations, the following secrets
 4. **Chat Agent Flow:** Navigate to **Chat**, ask a question (e.g., "What is the weather in London?"), and observe the agent automatically invoking the `weather__get_weather` tool.
 5. **Verify Audit Logs:** Go to the **Audit Logs** page to see the record of your recent tool executions.
 6. **Generate API Key:** In the **API Keys** section, generate a key and configure your local external MCP client (like Claude Desktop) to connect to `http://api.urumi.local/mcp`.
+
+## Standout Features
+- **Dual-Role MCP Architecture:** Operates as both an MCP Client (to upstreams) and an MCP Server (to external clients), seamlessly aggregating and namespacing tools.
+- **Dynamic Server Management:** Connect or disable upstream MCP servers dynamically through the Dashboard without restarting the Gateway.
+- **Robust SSRF Prevention:** Strictly evaluates internal/external IP addresses to prevent external LLM inputs from exploiting internal metadata endpoints.
+- **Role-Based Access Control:** Highly granular tool-level RBAC restricting `member` access to sensitive capabilities while allowing `admin` full operation.
+- **Extensive Audit Logging:** Cryptographically hashed API keys tied intrinsically to User IDs, creating a non-repudiable ledger of all executions, their duration, and outcome boundaries.
+- **Helm Local/Prod Parity:** Uses a single, unified Helm chart for both `kind` local deployment and clustered production environments, relying strictly on values overrides.
