@@ -8,6 +8,8 @@ metadata:
     {{- include "urumi.labels" . | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:
@@ -21,7 +23,7 @@ spec:
                 name: {{ include "urumi.fullname" . }}-wordpress
                 port:
                   number: {{ .Values.wordpress.port }}
-    - host: api.urumi.local
+    - host: {{ .Values.ingress.hosts.api | quote }}
       http:
         paths:
           - path: /
@@ -31,9 +33,7 @@ spec:
                 name: gateway
                 port:
                   number: {{ .Values.gateway.service.port }}
-{{- end }}
-
-    - host: dashboard.urumi.local
+    - host: {{ .Values.ingress.hosts.dashboard | quote }}
       http:
         paths:
           - path: /
@@ -43,3 +43,4 @@ spec:
                 name: urumi-dashboard
                 port:
                   number: 80
+{{- end }}

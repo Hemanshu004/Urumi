@@ -5,7 +5,7 @@ metadata:
   labels:
     app: weather-mcp
 spec:
-  replicas: 1
+  replicas: {{ .Values.weatherMcp.replicas }}
   selector:
     matchLabels:
       app: weather-mcp
@@ -17,20 +17,15 @@ spec:
       serviceAccountName: urumi-sa
       containers:
         - name: weather-mcp
-          image: "urumi-weather-mcp:latest"
-          imagePullPolicy: Never
+          image: "{{ .Values.weatherMcp.image.repository }}:{{ .Values.weatherMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.weatherMcp.image.pullPolicy }}
           ports:
             - containerPort: 3003
           env:
             - name: PORT
               value: "3003"
           resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "250m"
-              memory: "256Mi"
+            {{- toYaml .Values.weatherMcp.resources | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /health

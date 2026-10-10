@@ -10,24 +10,14 @@ const resolve6 = promisify(dns.resolve6);
 const ALLOWED_INTERNAL_HOSTS = new Set([
   "woo-mcp",
   "github-mcp",
-  "weather-mcp"
+  "weather-mcp",
+  "woo-mcp.urumi.svc.cluster.local",
+  "github-mcp.urumi.svc.cluster.local",
+  "weather-mcp.urumi.svc.cluster.local"
 ]);
 
-// Allowlist of Kubernetes internal DNS suffixes (configurable via env if needed)
-const ALLOWED_INTERNAL_SUFFIXES = [
-  ".svc.cluster.local"
-];
-
 function isAllowedInternalHost(hostname: string): boolean {
-  if (ALLOWED_INTERNAL_HOSTS.has(hostname.toLowerCase())) {
-    return true;
-  }
-  for (const suffix of ALLOWED_INTERNAL_SUFFIXES) {
-    if (hostname.toLowerCase().endsWith(suffix)) {
-      return true;
-    }
-  }
-  return false;
+  return ALLOWED_INTERNAL_HOSTS.has(hostname.toLowerCase());
 }
 
 export async function validateUrlForSSRF(urlString: string): Promise<string> {

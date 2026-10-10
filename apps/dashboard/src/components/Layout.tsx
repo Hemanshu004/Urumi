@@ -82,13 +82,13 @@ export default function Layout() {
             <MessageSquare size={18} /> Agent
           </NavLink>
           
+          <NavLink to="/api-keys" onClick={() => setIsMobileOpen(false)} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+            <Key size={18} /> API Keys
+          </NavLink>
           {user?.role === "admin" && (
             <>
               <NavLink to="/servers" onClick={() => setIsMobileOpen(false)} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
                 <Server size={18} /> MCP Servers
-              </NavLink>
-              <NavLink to="/api-keys" onClick={() => setIsMobileOpen(false)} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-                <Key size={18} /> API Keys
               </NavLink>
               <NavLink to="/audit" onClick={() => setIsMobileOpen(false)} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
                 <FileText size={18} /> Audit Logs

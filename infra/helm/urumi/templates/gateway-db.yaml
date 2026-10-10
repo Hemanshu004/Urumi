@@ -37,6 +37,28 @@ spec:
                   key: gateway-db-password
             - name: POSTGRES_DB
               value: {{ .Values.gatewayDb.auth.database }}
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.gatewayDb.auth.username }}
+                - -d
+                - {{ .Values.gatewayDb.auth.database }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.gatewayDb.auth.username }}
+                - -d
+                - {{ .Values.gatewayDb.auth.database }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data

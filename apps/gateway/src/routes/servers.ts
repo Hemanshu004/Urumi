@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
-import { upstream_servers } from "../db/schema.js";
+import { upstream_servers, audit_logs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/auth.js";
 import { clientManager } from "../mcp/clientManager.js";
@@ -13,7 +13,6 @@ import { z } from "zod";
 export const serversRouter = Router();
 
 serversRouter.use(requireAuth);
-serversRouter.use(requireAdmin);
 
 const createServerSchema = z.object({
   name: z.string().min(1).max(50),
@@ -43,7 +42,7 @@ serversRouter.get("/", async (req, res) => {
   res.json({ servers: enriched });
 });
 
-serversRouter.post("/", async (req, res) => {
+serversRouter.post("/", requireAdmin, async (req, res) => {
   try {
     const { name, url, timeout_ms, credential } = createServerSchema.parse(req.body);
     
@@ -73,12 +72,15 @@ serversRouter.post("/", async (req, res) => {
     if (err.message && err.message.startsWith("SSRF Prevention")) {
       return res.status(400).json({ error: err.message });
     }
+    if (err.message && err.message.includes("duplicate key value")) {
+      return res.status(400).json({ error: "A server with this name already exists." });
+    }
     logger.error("Error creating server", { error: err.message });
     res.status(500).json({ error: err.message || "Failed to add server" });
   }
 });
 
-serversRouter.get("/:id", async (req, res) => {
+serversRouter.get("/:id", requireAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
@@ -96,7 +98,7 @@ const patchSchema = z.object({
   credential: z.string().optional()
 });
 
-serversRouter.patch("/:id", async (req, res) => {
+serversRouter.patch("/:id", requireAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
@@ -140,17 +142,21 @@ serversRouter.patch("/:id", async (req, res) => {
   } catch (err: any) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.errors });
     if (err.message && err.message.startsWith("SSRF Prevention")) return res.status(400).json({ error: err.message });
+    if (err.message && err.message.includes("duplicate key value")) {
+      return res.status(400).json({ error: "A server with this name already exists." });
+    }
     res.status(500).json({ error: err.message });
   }
 });
 
-serversRouter.delete("/:id", async (req, res) => {
+serversRouter.delete("/:id", requireAdmin, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
   const [server] = await db.select().from(upstream_servers).where(eq(upstream_servers.id, id));
   if (server) {
     await clientManager.disconnectServer(server.name);
+    await db.update(audit_logs).set({ server_id: null }).where(eq(audit_logs.server_id, id));
     await db.delete(upstream_servers).where(eq(upstream_servers.id, id));
   }
   res.json({ message: "Deleted successfully" });

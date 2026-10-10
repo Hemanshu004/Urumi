@@ -46,6 +46,8 @@ ingress:
   className: nginx
   hosts:
     shop: shop.urumi.local
+    api: api.urumi.local
+    dashboard: dashboard.urumi.local
 
 # -- Secrets
 # If empty, passwords are auto-generated on first install.
@@ -60,6 +62,54 @@ secrets:
 
   wordpressDbRootPassword: ""
   wordpressDbPassword: ""
+
+dashboard:
+  image:
+    repository: urumi-dashboard
+    tag: latest
+    pullPolicy: Never
+  replicas: 1
+  service:
+    port: 80
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+githubMcp:
+  image:
+    repository: urumi-github-mcp
+    tag: latest
+    pullPolicy: Never
+  service:
+    port: 3002
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+weatherMcp:
+  image:
+    repository: urumi-weather-mcp
+    tag: latest
+    pullPolicy: Never
+  service:
+    port: 3003
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
 
 wooMcp:
   image:

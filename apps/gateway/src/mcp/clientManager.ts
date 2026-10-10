@@ -1,4 +1,4 @@
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, StreamableHTTPClientTransport, SSEClientTransport } from "@modelcontextprotocol/client";
 import { db } from "../db/index.js";
 import { upstream_servers } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -104,11 +104,17 @@ class ClientManager {
     const callPromise = client.listTools();
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout;
+      let settled = false;
       callPromise.then(
-        (res) => { clearTimeout(timer); resolve(res); },
-        (err) => { clearTimeout(timer); reject(err); }
+        (res) => { if (!settled) { settled = true; clearTimeout(timer); resolve(res); } },
+        (err) => { if (!settled) { settled = true; clearTimeout(timer); reject(err); } }
       );
-      timer = setTimeout(() => reject(new Error("Timeout")), timeoutMs);
+      timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error("Timeout"));
+        }
+      }, timeoutMs);
     });
   }
 
@@ -123,26 +129,38 @@ class ClientManager {
       return;
     }
     
-    let options: any = {};
+    let options: any = {
+      requestInit: {
+        redirect: 'error'
+      }
+    };
     if (server.credential_encrypted) {
       try {
         const decrypted = decryptCredential(server.credential_encrypted);
-        const headers = { "Authorization": `Bearer ${decrypted}` };
-        
-        options = {
-          _fetch: (input: any, init?: any) => {
-            return fetch(input, {
-              ...init,
-              headers: { ...init?.headers, ...headers }
-            });
-          }
-        };
+        options.requestInit.headers = { "Authorization": `Bearer ${decrypted}` };
       } catch (err: any) {
         logger.error("Failed to decrypt credentials", { server: server.name, error: err.message });
       }
     }
 
-    const transport = new StreamableHTTPClientTransport(new URL(server.url), options);
+    let transport;
+    if (server.url.endsWith("/sse") || server.url.endsWith("/sse/")) {
+      transport = new SSEClientTransport(new URL(server.url), options);
+    } else {
+      const streamOptions: any = {};
+      const fetchHeaders: any = {};
+      if (server.credential_encrypted) {
+        try {
+          const decrypted = decryptCredential(server.credential_encrypted);
+          fetchHeaders["Authorization"] = `Bearer ${decrypted}`;
+        } catch (e) {}
+      }
+      streamOptions._fetch = (input: any, init?: any) => {
+        return fetch(input, { ...init, headers: { ...init?.headers, ...fetchHeaders }, redirect: 'error' });
+      };
+      transport = new StreamableHTTPClientTransport(new URL(server.url), streamOptions);
+    }
+    
     const client = new Client({ name: "urumi-gateway", version: "1.0.0" }, { capabilities: {} });
 
     try {
@@ -257,19 +275,26 @@ class ClientManager {
 
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout;
+      let settled = false;
       
       callPromise.then(
         (res) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
           resolve(res);
         },
         (err) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
           reject(err);
         }
       );
       
       timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         reject(new Error("Timeout"));
       }, timeoutMs);
     });

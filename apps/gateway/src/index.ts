@@ -62,6 +62,10 @@ app.get("/health/ready", async (req, res) => {
   }
 });
 
+app.get("/", (req, res) => {
+  res.json({ message: "Urumi MCP Gateway API", version: "0.1.0" });
+});
+
 // Legacy endpoint for backward compatibility
 app.get("/health", (req, res) => {
   res.json({ status: "healthy" });

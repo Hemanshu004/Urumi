@@ -5,7 +5,7 @@ metadata:
   labels:
     app: github-mcp
 spec:
-  replicas: 1
+  replicas: {{ .Values.githubMcp.replicas }}
   selector:
     matchLabels:
       app: github-mcp
@@ -17,8 +17,8 @@ spec:
       serviceAccountName: urumi-sa
       containers:
         - name: github-mcp
-          image: "urumi-github-mcp:latest"
-          imagePullPolicy: Never
+          image: "{{ .Values.githubMcp.image.repository }}:{{ .Values.githubMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.githubMcp.image.pullPolicy }}
           ports:
             - containerPort: 3002
           env:
@@ -31,12 +31,7 @@ spec:
                   key: GITHUB_TOKEN
                   optional: true
           resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "250m"
-              memory: "256Mi"
+            {{- toYaml .Values.githubMcp.resources | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /health

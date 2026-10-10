@@ -5,7 +5,7 @@ metadata:
   labels:
     app: urumi-dashboard
 spec:
-  replicas: 1
+  replicas: {{ .Values.dashboard.replicas }}
   selector:
     matchLabels:
       app: urumi-dashboard
@@ -17,10 +17,24 @@ spec:
       serviceAccountName: urumi-sa
       containers:
         - name: dashboard
-          image: "urumi-dashboard:latest"
-          imagePullPolicy: Never
+          image: "{{ .Values.dashboard.image.repository }}:{{ .Values.dashboard.image.tag }}"
+          imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
           ports:
             - containerPort: 8080
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
 ---
 apiVersion: v1
 kind: Service

@@ -57,6 +57,29 @@ export default function Servers() {
     }
   };
 
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newServer, setNewServer] = useState({ name: "", url: "", timeout_ms: 30000, credential: "" });
+
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const payload: any = {
+        name: newServer.name,
+        url: newServer.url,
+        timeout_ms: parseInt(newServer.timeout_ms as any)
+      };
+      if (newServer.credential) {
+        payload.credential = newServer.credential;
+      }
+      await api.addServer(payload);
+      setShowAddModal(false);
+      setNewServer({ name: "", url: "", timeout_ms: 30000, credential: "" });
+      fetchServers();
+    } catch (err: any) {
+      alert(err.message || "Failed to add server");
+    }
+  };
+
   if (loading) return <div>Loading...</div>;
   if (error) return <div style={{ padding: "2rem", color: "var(--danger)" }}>{error}</div>;
 
@@ -64,6 +87,7 @@ export default function Servers() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", position: "relative" }}>
       <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}>MCP Servers</h1>
+        <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add MCP Server</button>
       </div>
       
       <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: 0, overflow: "hidden", marginBottom: "0.5rem" }}>
@@ -161,6 +185,36 @@ export default function Servers() {
               <div style={{ display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
                 <button type="button" className="btn-secondary" onClick={() => setEditingServer(null)}>Cancel</button>
                 <button type="submit" className="btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showAddModal && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div className="card" style={{ width: "400px", maxWidth: "90%" }}>
+            <h3 style={{ marginBottom: "1rem" }}>Add Server</h3>
+            <form onSubmit={handleAddSubmit}>
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="input-label">Name</label>
+                <input type="text" className="input-field" value={newServer.name} onChange={e => setNewServer({...newServer, name: e.target.value})} required />
+              </div>
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="input-label">URL</label>
+                <input type="url" className="input-field" placeholder="http://.../mcp or sse" value={newServer.url} onChange={e => setNewServer({...newServer, url: e.target.value})} required />
+              </div>
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="input-label">Timeout (ms)</label>
+                <input type="number" className="input-field" value={newServer.timeout_ms} onChange={e => setNewServer({...newServer, timeout_ms: parseInt(e.target.value) || 30000})} required />
+              </div>
+              <div style={{ marginBottom: "1.5rem" }}>
+                <label className="input-label">Credential (Optional)</label>
+                <input type="text" className="input-field" placeholder="Bearer Token / API Key" value={newServer.credential} onChange={e => setNewServer({...newServer, credential: e.target.value})} />
+              </div>
+              <div style={{ display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
+                <button type="submit" className="btn-primary">Add Server</button>
               </div>
             </form>
           </div>

@@ -96,7 +96,7 @@ export default function App() {
               <Route path="/dashboard" element={<ProtectedRoute><Home /></ProtectedRoute>} />
               <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
               <Route path="/servers" element={<ProtectedRoute adminOnly><Servers /></ProtectedRoute>} />
-              <Route path="/api-keys" element={<ProtectedRoute adminOnly><ApiKeys /></ProtectedRoute>} />
+              <Route path="/api-keys" element={<ProtectedRoute><ApiKeys /></ProtectedRoute>} />
               <Route path="/audit" element={<ProtectedRoute adminOnly><AuditLogs /></ProtectedRoute>} />
               <Route path="/team" element={<ProtectedRoute adminOnly><Team /></ProtectedRoute>} />
               <Route path="/permissions" element={<ProtectedRoute adminOnly><Permissions /></ProtectedRoute>} />
