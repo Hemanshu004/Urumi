@@ -46,9 +46,7 @@ serversRouter.post("/", async (req, res) => {
   try {
     const { name, url, timeout_ms, credential } = createServerSchema.parse(req.body);
     
-    if (!name.startsWith("woo") && !name.startsWith("github") && !name.startsWith("weather")) {
-      await validateUrlForSSRF(url);
-    }
+    await validateUrlForSSRF(url);
     
     let encryptedCred: string | null = null;
     if (credential) {
@@ -70,6 +68,9 @@ serversRouter.post("/", async (req, res) => {
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: "Validation failed", details: err.errors });
+    }
+    if (err.message && err.message.startsWith("SSRF Prevention")) {
+      return res.status(400).json({ error: err.message });
     }
     console.error("Error creating server:", err);
     res.status(500).json({ error: err.message || "Failed to add server" });
@@ -98,7 +99,18 @@ serversRouter.patch("/:id", async (req, res) => {
   try {
     const updates = patchSchema.parse(req.body);
     if (Object.keys(updates).length > 0) {
-      await db.update(upstream_servers).set(updates).where(eq(upstream_servers.id, id));
+      const [updated] = await db.update(upstream_servers)
+        .set(updates)
+        .where(eq(upstream_servers.id, id))
+        .returning();
+        
+      if (updated) {
+        if (updates.enabled === false) {
+          await clientManager.disconnectServer(updated.name);
+        } else if (updates.enabled === true) {
+          clientManager.connectServer(updated).catch(console.error);
+        }
+      }
     }
     res.json({ message: "Updated successfully" });
   } catch (err: any) {
@@ -111,6 +123,10 @@ serversRouter.delete("/:id", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
-  await db.delete(upstream_servers).where(eq(upstream_servers.id, id));
+  const [server] = await db.select().from(upstream_servers).where(eq(upstream_servers.id, id));
+  if (server) {
+    await clientManager.disconnectServer(server.name);
+    await db.delete(upstream_servers).where(eq(upstream_servers.id, id));
+  }
   res.json({ message: "Deleted successfully" });
 });

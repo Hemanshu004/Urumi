@@ -4,6 +4,7 @@ import { upstream_servers } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { registry } from "./registry.js";
 import { decryptCredential } from "../utils/crypto.js";
+import { validateUrlForSSRF } from "../utils/ssrf.js";
 
 interface ManagedClient {
   id: number;
@@ -25,6 +26,16 @@ class ClientManager {
 
   public async connectServer(server: any) {
     console.log(`Connecting to upstream server: ${server.name} at ${server.url}`);
+    
+    try {
+      await validateUrlForSSRF(server.url);
+    } catch (err: any) {
+      console.error(`SSRF validation failed for ${server.name}:`, err.message);
+      await db.update(upstream_servers)
+        .set({ status: "error", status_message: err.message, last_health_check: new Date() })
+        .where(eq(upstream_servers.id, server.id));
+      return;
+    }
     
     let options: any = {};
     if (server.credential_encrypted) {
@@ -98,6 +109,32 @@ class ClientManager {
     } catch (err: any) {
       console.error(`Failed to sync tools from ${serverName}:`, err.message);
     }
+  }
+
+  public async markServerFailed(serverName: string, errorMessage: string) {
+    const managed = this.clients.get(serverName);
+    if (!managed) return;
+    managed.status = "error";
+    try {
+      await db.update(upstream_servers)
+        .set({ status: "error", status_message: errorMessage, last_health_check: new Date() })
+        .where(eq(upstream_servers.id, managed.id));
+    } catch (e) {
+      console.error(`Failed to update status for ${serverName}:`, e);
+    }
+  }
+
+  public async disconnectServer(serverName: string) {
+    const managed = this.clients.get(serverName);
+    if (!managed) return;
+    try {
+      await managed.client.close();
+    } catch (err) {
+      // ignore
+    }
+    this.clients.delete(serverName);
+    registry.clearServerTools(serverName);
+    console.log(`Disconnected upstream server: ${serverName}`);
   }
 
   public getClient(serverName: string): ManagedClient | undefined {

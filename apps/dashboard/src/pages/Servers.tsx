@@ -40,21 +40,21 @@ export default function Servers() {
   if (error) return <div style={{ padding: "2rem", color: "var(--danger)" }}>{error}</div>;
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}>MCP Servers</h1>
       </div>
       
-      <div className="card">
-        <div className="table-container">
-          <table>
-            <thead>
+      <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: 0, overflow: "hidden", marginBottom: "0.5rem" }}>
+        <div className="table-container" style={{ flex: 1, overflowY: "auto", minHeight: 0, border: "none", borderRadius: 0 }}>
+          <table style={{ margin: 0 }}>
+            <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
-                <th>Server</th>
-                <th>URL</th>
-                <th>Status</th>
-                <th>Tools</th>
-                <th>Actions</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Server</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>URL</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Status</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Tools</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -70,9 +70,9 @@ export default function Servers() {
                   <td>
                     {server.enabled ? (
                       server.status === "connected" ? (
-                        <span style={{ color: "var(--success)", display: "flex", alignItems: "center", gap: "0.25rem" }}><CheckCircle2 size={16}/> Connected</span>
+                        <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><CheckCircle2 size={14}/> Connected</span>
                       ) : (
-                        <span style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: "0.25rem" }}><XCircle size={16}/> {server.status}</span>
+                        <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><XCircle size={14}/> {server.status}</span>
                       )
                     ) : (
                       <span style={{ color: "var(--text-muted)" }}>Disabled</span>

@@ -4,6 +4,8 @@ import { clientManager } from "../mcp/clientManager.js";
 import { logAudit } from "../services/audit.js";
 import { registry } from "../mcp/registry.js";
 import { getLLMProvider, ChatMessage } from "../services/llm.js";
+import { stripNullArgs } from "../utils/toolArgs.js";
+import { isToolAllowed } from "../utils/rbac.js";
 
 export const chatRouter = Router();
 
@@ -20,10 +22,11 @@ chatRouter.post("/", async (req: any, res) => {
   const toolCallMetadata: any[] = [];
   const provider = getLLMProvider();
 
-  const availableTools = registry.getAllTools();
+  const userRole = req.user.role || "member";
+  const availableTools = registry.getAllTools().filter(t => isToolAllowed(userRole, t.namespacedName));
   
   const messages: ChatMessage[] = [
-    { role: "system", content: "You are the Urumi MCP Agent. You have access to tools across multiple systems (e.g. WooCommerce, GitHub, Weather). Use them to help the user." }
+    { role: "system", content: "You are the Urumi MCP Agent. You have access to tools across multiple systems (e.g. WooCommerce, GitHub, Weather). Use them to help the user. The frontend UI will render structured data tables for your tool results automatically. Therefore, YOUR RESPONSES MUST BE VERY CONCISE. Do not explain the data in natural language or create markdown tables. E.g. simply say 'Here are the latest orders.' If the result is empty, just say 'No orders were found.' and offer a useful follow-up action. SPECIFIC INSTRUCTION FOR GITHUB: When GitHub list_issues executes successfully and returns zero issues, you MUST respond clearly: 'No open issues were found in owner/repository.' (use the actual repository owner/name from the request). Do NOT suggest creating a new issue unless a GitHub issue-creation MCP tool is actually available." }
   ];
 
   if (conversationHistory && Array.isArray(conversationHistory)) {
@@ -62,22 +65,32 @@ chatRouter.post("/", async (req: any, res) => {
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
         for (const tc of responseMessage.tool_calls) {
           const toolName = tc.function.name;
-          let args = {};
+          let args: Record<string, unknown> = {};
           try {
              args = JSON.parse(tc.function.arguments);
           } catch (e) {
+            // Malformed JSON — fall back to empty args
           }
+
+          // LLMs often emit `"key": null` for optional params they don't
+          // intend to set.  MCP schemas declare those as typed (e.g. string),
+          // so null would fail validation.  Strip null optionals generically.
+          const registered = registry.getTool(toolName);
+          args = stripNullArgs(args, registered?.inputSchema);
 
           const toolStart = Date.now();
           let toolResult = "";
           let toolStatus = "success";
           let serverId = 0;
 
-          const registered = registry.getTool(toolName);
           
           if (!registered) {
             toolResult = `Error: Tool ${toolName} not found or not enabled.`;
             toolStatus = "error";
+          } else if (!isToolAllowed(userRole, toolName)) {
+            toolResult = `Error: Access denied to tool ${toolName} for role ${userRole}.`;
+            toolStatus = "denied";
+            serverId = registered.serverId;
           } else {
             serverId = registered.serverId;
             const client = clientManager.getClient(registered.serverName);
@@ -93,7 +106,7 @@ chatRouter.post("/", async (req: any, res) => {
                 });
                 
                 toolResult = JSON.stringify(res.content);
-                toolStatus = "success";
+                toolStatus = res.isError ? "error" : "success";
               } catch (err: any) {
                 toolResult = `Error executing tool: ${err.message}`;
                 toolStatus = "error";
@@ -102,7 +115,17 @@ chatRouter.post("/", async (req: any, res) => {
           }
 
           const toolDuration = Date.now() - toolStart;
-          toolCallMetadata.push({ tool: toolName, status: toolStatus, durationMs: toolDuration });
+          toolCallMetadata.push({ 
+            tool: toolName, 
+            status: toolStatus, 
+            durationMs: toolDuration,
+            args: args,
+            result: toolStatus === "success" ? (
+              (toolName === "woocommerce__list_orders" || toolName === "woocommerce__list_products" || toolName === "github__list_issues" || toolName === "github__search_repositories" || toolName === "weather__get_weather") 
+                ? (() => { try { return JSON.parse(toolResult); } catch { return toolResult; } })() 
+                : toolResult
+            ) : toolResult
+          });
 
           await logAudit({
             userId,

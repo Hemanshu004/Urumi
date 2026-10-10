@@ -55,56 +55,58 @@ export default function ApiKeys() {
   if (loading) return <div>Loading...</div>;
 
   return (
-    <div>
-      <h1 className="page-title">API Keys</h1>
-      
-      {newKey && (
-        <div className="card" style={{ marginBottom: "2rem", border: "1px solid var(--success)", backgroundColor: "rgba(16, 185, 129, 0.05)" }}>
-          <h3 style={{ color: "var(--success)", marginBottom: "1rem" }}>New API Key Created!</h3>
-          <p style={{ marginBottom: "1rem" }}>Please copy this key now. You will not be able to see it again.</p>
-          <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-            <div style={{ flex: 1, padding: "1rem", backgroundColor: "var(--bg-dark)", borderRadius: "6px", fontFamily: "monospace", fontSize: "1.125rem", wordBreak: "break-all" }}>
-              {newKey}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ flexShrink: 0 }}>
+        <h1 className="page-title">API Keys</h1>
+        
+        {newKey && (
+          <div className="card" style={{ marginBottom: "2rem", border: "1px solid var(--success)", backgroundColor: "rgba(16, 185, 129, 0.05)" }}>
+            <h3 style={{ color: "var(--success)", marginBottom: "1rem" }}>New API Key Created!</h3>
+            <p style={{ marginBottom: "1rem" }}>Please copy this key now. You will not be able to see it again.</p>
+            <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+              <div style={{ flex: 1, padding: "1rem", backgroundColor: "var(--bg-dark)", borderRadius: "6px", fontFamily: "monospace", fontSize: "1.125rem", wordBreak: "break-all" }}>
+                {newKey}
+              </div>
+              <button className="btn-primary" onClick={handleCopy} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                {copied ? <><CheckCircle2 size={18}/> Copied</> : <><Copy size={18}/> Copy</>}
+              </button>
             </div>
-            <button className="btn-primary" onClick={handleCopy} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              {copied ? <><CheckCircle2 size={18}/> Copied</> : <><Copy size={18}/> Copy</>}
+            <button style={{ marginTop: "1rem", background: "none", color: "var(--text-muted)", textDecoration: "underline" }} onClick={() => setNewKey(null)}>
+              I have saved it securely
             </button>
           </div>
-          <button style={{ marginTop: "1rem", background: "none", color: "var(--text-muted)", textDecoration: "underline" }} onClick={() => setNewKey(null)}>
-            I have saved it securely
-          </button>
-        </div>
-      )}
+        )}
 
-      <div className="card" style={{ marginBottom: "2rem" }}>
-        <h3 style={{ marginBottom: "1rem" }}>Create New Key</h3>
-        <form onSubmit={handleCreate} style={{ display: "flex", gap: "1rem" }}>
-          <input
-            type="text"
-            className="input-field"
-            style={{ marginBottom: 0 }}
-            placeholder="Key Label (e.g., Local CLI, React App)"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            required
-          />
-          <button type="submit" className="btn-primary" style={{ whiteSpace: "nowrap" }}>
-            Generate Key
-          </button>
-        </form>
+        <div className="card" style={{ marginBottom: "2rem" }}>
+          <h3 style={{ marginBottom: "1rem" }}>Create New Key</h3>
+          <form onSubmit={handleCreate} style={{ display: "flex", gap: "1rem" }}>
+            <input
+              type="text"
+              className="input-field"
+              style={{ marginBottom: 0 }}
+              placeholder="Key Label (e.g., Local CLI, React App)"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              required
+            />
+            <button type="submit" className="btn-primary" style={{ whiteSpace: "nowrap" }}>
+              Generate Key
+            </button>
+          </form>
+        </div>
       </div>
       
-      <div className="card">
-        <div className="table-container">
-          <table>
-            <thead>
+      <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: 0, overflow: "hidden" }}>
+        <div className="table-container" style={{ flex: 1, overflowY: "auto", minHeight: 0, border: "none", borderRadius: 0 }}>
+          <table style={{ margin: 0 }}>
+            <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
-                <th>Label</th>
-                <th>Prefix</th>
-                <th>Created</th>
-                <th>Last Used</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Label</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Prefix</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Created</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Last Used</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Status</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Actions</th>
               </tr>
             </thead>
             <tbody>

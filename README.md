@@ -1,58 +1,98 @@
 # Urumi MCP Gateway
 
-## 1. Project Overview
-The Urumi MCP Gateway is an enterprise-grade Kubernetes-native architecture for securely aggregating, proxying, and exposing Model Context Protocol (MCP) servers. It provides a React dashboard, LLM agent chat interface, and external API integrations for seamless, secure tool usage.
+## What is Urumi?
+Urumi is an AI-focused Model Context Protocol (MCP) Gateway built with Node.js/TypeScript, React, Kubernetes, and Helm. It acts as a central hub to securely aggregate, proxy, and expose multiple upstream MCP servers (such as WooCommerce, GitHub, and Weather). It provides a React dashboard, an LLM agent chat interface, and external API integrations for seamless, secure tool usage.
 
-## 2. Architecture
-The architecture comprises:
-- **Gateway (Node.js/Express):** Acts as the central MCP server and client. Aggregates upstream tools, performs RBAC, sanitizes LLM boundaries, and prevents credentials leakage.
-- **Dashboard (React):** A user-friendly control panel for managing connected MCP servers, generating API keys, and chatting with the LLM Agent.
-- **MCP Upstreams (Node.js):** Isolated microservices (e.g., `woo-mcp`, `github-mcp`, `weather-mcp`) bridging the Gateway to actual data sources like WooCommerce, GitHub APIs, and Weather endpoints.
-- **Data Persistence:** PostgreSQL for Gateway configurations and MariaDB for WordPress.
+## Architecture & Main Components
 
-## 3. Prerequisites
+```mermaid
+flowchart TD
+    Client[External MCP Client (e.g., Claude)] -->|HTTP/SSE| Gateway[Urumi Gateway (Express)]
+    Browser[User Browser] -->|HTTP| Dashboard[React Dashboard]
+    Dashboard -->|REST| Gateway
+    Gateway -->|MCP HTTP Transport| Woo[woo-mcp]
+    Gateway -->|MCP HTTP Transport| Github[github-mcp]
+    Gateway -->|MCP HTTP Transport| Weather[weather-mcp]
+    Woo -->|REST API| WooCommerce[WooCommerce/WordPress]
+    Github -->|REST API| GithubAPI[GitHub API]
+    Weather -->|REST API| WeatherAPI[Weather Service]
+    Gateway <-->|SQL| DB[(MariaDB/PostgreSQL)]
+```
+
+### Main Components
+- **Gateway (Node.js/Express):** Acts as the central MCP server and client. It handles authentication, RBAC, session management, SSRF validation, and audit logging.
+- **Dashboard (React/Vite):** A Single Page Application (SPA) for managing connected MCP servers, generating API keys, viewing audit logs, and interacting with the LLM Chat Agent.
+- **MCP Upstreams (Node.js):** Isolated microservices (`woo-mcp`, `github-mcp`, `weather-mcp`) that bridge the Gateway to external systems.
+- **Database:** MariaDB (or PostgreSQL) for Gateway configuration (users, keys, servers, audit logs) and WordPress data.
+
+## How the MCP Gateway Works
+The Gateway operates in a dual role:
+1. **As an MCP Client:** It uses `@modelcontextprotocol/client` to connect to upstream MCP servers using HTTP transports. It syncs tools from upstreams and namespaces them (e.g., `github__list_issues`).
+2. **As an MCP Server:** It uses `@modelcontextprotocol/sdk/server` to expose the aggregated tools to external clients via the `/mcp` API route.
+
+## How the Chat Agent Uses MCP Tools
+Users can interact with an LLM via the `/api/chat` route. The flow is:
+1. The user sends a prompt.
+2. The Gateway provides the LLM with the user's prompt, conversation history, and a list of all available MCP tools (filtered by RBAC).
+3. The LLM responds with tool calls.
+4. The Gateway intercepts these tool calls, executes them securely against the appropriate upstream MCP servers, and records an audit log for each execution.
+5. Tool results are fed back to the LLM (or directly to the user if final), and structured data is rendered natively on the dashboard.
+
+## Authentication and API Keys
+- **Dashboard Auth:** Users authenticate via `/api/auth/login` and receive a JWT stored in an HttpOnly cookie.
+- **External Client Auth:** External MCP clients authenticate by passing an API key in the `Authorization: Bearer <API_KEY>` header to `/mcp`.
+- **Key Management:** API keys are generated via the dashboard. The raw keys are shown once, and only a `bcrypt` hash and a prefix are stored in the database for security.
+
+## RBAC (Role-Based Access Control)
+The system supports `admin` and `member` roles. Tool-level RBAC is enforced per-tool. Admins have access to all tools, while members may be restricted from certain sensitive tools. Tool exposure in both the Chat Agent and `/mcp` endpoints is filtered based on the authenticated user's role.
+
+## Audit Logging
+Every tool execution (whether initiated by the Chat Agent or an external MCP client) is tracked and stored in the `audit_logs` table. The logs capture the user ID, upstream server, tool name, request parameters, outcome (success, error, timeout, denied), and execution duration.
+
+## Upstream Server Management
+Upstream servers can be managed (enabled/disabled) via the dashboard. The Gateway dynamically connects or disconnects these servers without restarting. When a server is connected, its URL is validated against SSRF attacks to ensure it does not access internal restricted networks unexpectedly. 
+
+## Kubernetes Architecture
+Urumi is designed to run on Kubernetes. The setup includes:
+- **Deployments & Services:** For the Gateway, Dashboard, MariaDB, WordPress, and all MCP upstreams.
+- **ConfigMaps & Secrets:** Environment variables and credentials are provided natively via K8s Secrets.
+- **Ingress:** Routes external traffic to the Dashboard, Gateway API, and WordPress frontend.
+- **NetworkPolicies:** Enforce strict pod-to-pod communication boundaries.
+
+## Local Setup & Helm Deployment
+### Prerequisites
 - Docker & Kind
 - kubectl
 - Helm
 
-## 4. Local Kind Setup
-Run `infra/scripts/setup-local.sh` to initialize the Kind cluster, ingress controllers, and storage provisioning.
+### 1. Initialize Cluster
+Run the provided script to initialize a local Kind cluster with ingress and storage:
+```bash
+./infra/scripts/setup-local.sh
+```
 
-## 5. Helm Deployment
-Run `helm install urumi infra/helm/urumi -n urumi --create-namespace` to deploy all configurations and pods natively.
-For development, use `values-local.yaml`, and for production, use `values-prod.yaml` using the exact same Helm chart.
+### 2. Helm Deployment
+Deploy the entire stack using Helm. 
+```bash
+helm install urumi infra/helm/urumi -n urumi --create-namespace
+```
+Secrets will be auto-generated for passwords if not provided, though you can pass explicit values via `--set` or a values file.
 
-## 6. WordPress/WooCommerce Setup
-After deploying, run `infra/scripts/seed-woo.sh` to scaffold the store, create API credentials, and seed the initial database.
+### 3. WordPress/WooCommerce Scaffold
+Once pods are running, initialize WooCommerce:
+```bash
+./infra/scripts/seed-woo.sh
+```
 
-## 7. Dashboard Access
-Navigate to [http://dashboard.urumi.local](http://dashboard.urumi.local).
+## Required Environment Variables
+To fully utilize the chat agent and external integrations, the following secrets should be defined in `secrets.yaml` or injected via Helm values (`.Values.secrets`):
+- `LLM_API_KEY`: The API key for the LLM provider.
+- `GITHUB_TOKEN`: A valid GitHub Personal Access Token for the `github-mcp` server.
 
-## 8. Admin/Member Credentials Setup
-By default, the seed script provisions:
-- Admin: `admin@urumi.local` (Password: `admin123`)
-- Member: `member@urumi.local` (Password: `member123`)
-
-## 9. API Key Generation
-Login to the Dashboard -> Navigate to 'API Keys' -> Generate a new key. Keys are irrevocably hashed in the database and tied to specific user IDs for audit attribution.
-
-## 10. Connecting an External MCP Client
-Configure your external MCP client (e.g., Claude Desktop) to target `http://api.urumi.local/mcp` and inject the HTTP header `Authorization: Bearer <API_KEY>`.
-
-## 11. Chat Agent Usage
-Login to the Dashboard, navigate to 'Agent Chat', and submit natural language prompts. The LLM processes the query, securely executes available Gateway tools via server-side logic, and returns results.
-
-## 12. How to Place an Order
-Navigate to [http://shop.urumi.local](http://shop.urumi.local). Add products to the cart and checkout using COD.
-
-## 13. How to Test Upstream Failure
-Navigate to the Dashboard, disable a specific upstream server, and observe the `tools/list` instantly reflecting the change. Alternatively, use `kubectl delete pod` on an MCP server; the Gateway strictly isolates the failure and keeps all other tools fully functional.
-
-## 14. Audit Logs
-Every executed tool—whether via Chat Agent or External MCP Client—is permanently logged in PostgreSQL, tracking user identity, tool latency, source boundaries, and outcomes.
-
-## 15. Security Model
-See `docs/SECURITY.md` for a comprehensive breakdown of NetworkPolicies, Non-root enforcements, SSRF prevention, and AES-256-GCM configurations.
-
-## 16. Local vs Production Configuration
-See `docs/ARCHITECTURE.md` for environmental disparities between `values-local.yaml` and `values-prod.yaml`.
+## How to Run the Project & Verify Major Flows
+1. **Access the Dashboard:** Go to `http://dashboard.urumi.local`.
+2. **Login:** Use the default admin credentials (`admin@urumi.local` / `admin123`).
+3. **Verify Upstreams:** Navigate to the **Servers** page and ensure the upstream servers (`woo-mcp`, `github-mcp`, `weather-mcp`) are connected. You can disable/enable them here to test isolation.
+4. **Chat Agent Flow:** Navigate to **Chat**, ask a question (e.g., "What is the weather in London?"), and observe the agent automatically invoking the `weather__get_weather` tool.
+5. **Verify Audit Logs:** Go to the **Audit Logs** page to see the record of your recent tool executions.
+6. **Generate API Key:** In the **API Keys** section, generate a key and configure your local external MCP client (like Claude Desktop) to connect to `http://api.urumi.local/mcp`.

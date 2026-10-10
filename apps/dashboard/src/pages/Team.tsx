@@ -35,14 +35,7 @@ export default function Team() {
                   <td style={{ fontWeight: 500 }}>{u.name}</td>
                   <td>{u.email}</td>
                   <td>
-                    <span style={{ 
-                      padding: "0.25rem 0.5rem", 
-                      backgroundColor: u.role === "admin" ? "rgba(59, 130, 246, 0.2)" : "rgba(255, 255, 255, 0.1)",
-                      color: u.role === "admin" ? "var(--primary)" : "var(--text-main)",
-                      borderRadius: "4px",
-                      fontSize: "0.75rem",
-                      textTransform: "uppercase"
-                    }}>
+                    <span className={`badge ${u.role === 'admin' ? 'badge-warning' : 'badge-neutral'}`}>
                       {u.role}
                     </span>
                   </td>

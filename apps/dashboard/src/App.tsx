@@ -10,6 +10,7 @@ import AuditLogs from "./pages/AuditLogs";
 import Chat from "./pages/Chat";
 import Team from "./pages/Team";
 import Layout from "./components/Layout";
+import { ChatProvider } from "./context/ChatContext";
 
 export const AuthContext = React.createContext<{
   user: any;
@@ -68,7 +69,15 @@ function ProtectedRoute({ children, adminOnly = false }: { children: React.React
   }
 
   if (adminOnly && user.role !== "admin") {
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%", padding: "2rem" }}>
+        <div className="card" style={{ textAlign: "center", maxWidth: "400px", padding: "3rem", width: "100%" }}>
+          <h2 style={{ marginBottom: "1rem" }}>Access restricted</h2>
+          <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>You don't have permission to view this section.</p>
+          <a href="/dashboard" className="btn-primary" style={{ display: "inline-block" }}>Back to Dashboard</a>
+        </div>
+      </div>
+    );
   }
 
   return <>{children}</>;
@@ -78,18 +87,20 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route element={<Layout />}>
-            <Route path="/dashboard" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-            <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-            <Route path="/servers" element={<ProtectedRoute><Servers /></ProtectedRoute>} />
-            <Route path="/api-keys" element={<ProtectedRoute><ApiKeys /></ProtectedRoute>} />
-            <Route path="/audit" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
-            <Route path="/team" element={<ProtectedRoute adminOnly><Team /></ProtectedRoute>} />
-          </Route>
-        </Routes>
+        <ChatProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route element={<Layout />}>
+              <Route path="/dashboard" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+              <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+              <Route path="/servers" element={<ProtectedRoute adminOnly><Servers /></ProtectedRoute>} />
+              <Route path="/api-keys" element={<ProtectedRoute adminOnly><ApiKeys /></ProtectedRoute>} />
+              <Route path="/audit" element={<ProtectedRoute adminOnly><AuditLogs /></ProtectedRoute>} />
+              <Route path="/team" element={<ProtectedRoute adminOnly><Team /></ProtectedRoute>} />
+            </Route>
+          </Routes>
+        </ChatProvider>
       </AuthProvider>
     </BrowserRouter>
   );

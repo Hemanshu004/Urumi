@@ -22,22 +22,24 @@ export default function AuditLogs() {
   if (error) return <div style={{ padding: "2rem", color: "var(--danger)" }}>{error}</div>;
 
   return (
-    <div>
-      <h1 className="page-title">Audit Logs</h1>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ flexShrink: 0 }}>
+        <h1 className="page-title">Audit Logs</h1>
+      </div>
       
-      <div className="card">
-        <div className="table-container">
-          <table>
-            <thead>
+      <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: 0, overflow: "hidden", marginBottom: "0.5rem" }}>
+        <div className="table-container" style={{ flex: 1, overflowY: "auto", minHeight: 0, border: "none", borderRadius: 0 }}>
+          <table style={{ margin: 0 }}>
+            <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Source</th>
-                <th>Server</th>
-                <th>Tool</th>
-                <th>Outcome</th>
-                <th>Duration</th>
-                <th>Error</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Time</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>User</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Source</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Server</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Tool</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Outcome</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Duration</th>
+                <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Error</th>
               </tr>
             </thead>
             <tbody>
@@ -50,11 +52,11 @@ export default function AuditLogs() {
                   <td style={{ fontFamily: "monospace" }}>{log.namespaced_tool}</td>
                   <td>
                     {log.outcome === "success" ? (
-                      <span style={{ color: "var(--success)", display: "flex", alignItems: "center", gap: "0.25rem" }}><CheckCircle2 size={16}/> Success</span>
+                      <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><CheckCircle2 size={14}/> Success</span>
                     ) : log.outcome === "timeout" ? (
-                      <span style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: "0.25rem" }}><AlertCircle size={16}/> Timeout</span>
+                      <span className="badge badge-warning" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><AlertCircle size={14}/> Timeout</span>
                     ) : (
-                      <span style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: "0.25rem" }}><XCircle size={16}/> Error</span>
+                      <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><XCircle size={14}/> Error</span>
                     )}
                   </td>
                   <td>{log.duration_ms} ms</td>

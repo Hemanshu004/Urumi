@@ -41,7 +41,7 @@ export default function Home() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1.5rem", marginBottom: "2rem" }}>
         <div className="card">
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <div style={{ padding: "1rem", backgroundColor: "rgba(59, 130, 246, 0.1)", borderRadius: "8px" }}>
+            <div style={{ padding: "1rem", backgroundColor: "var(--bg-elevated)", borderRadius: "8px", border: "1px solid var(--border)" }}>
               <Server color="var(--primary)" />
             </div>
             <div>
@@ -53,7 +53,7 @@ export default function Home() {
         
         <div className="card">
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <div style={{ padding: "1rem", backgroundColor: "rgba(16, 185, 129, 0.1)", borderRadius: "8px" }}>
+            <div style={{ padding: "1rem", backgroundColor: "var(--bg-elevated)", borderRadius: "8px", border: "1px solid var(--border)" }}>
               <FileText color="var(--success)" />
             </div>
             <div>
@@ -82,9 +82,9 @@ export default function Home() {
                   <td style={{ fontFamily: "monospace" }}>{log.namespaced_tool}</td>
                   <td>
                     {log.outcome === "success" ? (
-                      <span style={{ color: "var(--success)", display: "flex", alignItems: "center", gap: "0.5rem" }}><CheckCircle2 size={16} /> Success</span>
+                      <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><CheckCircle2 size={14} /> Success</span>
                     ) : (
-                      <span style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: "0.5rem" }}><XCircle size={16} /> {log.outcome}</span>
+                      <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><XCircle size={14} /> {log.outcome}</span>
                     )}
                   </td>
                   <td>{log.duration_ms} ms</td>

@@ -1,7 +1,7 @@
 import express from "express";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ListToolsRequestSchema, CallToolRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { registry } from "./registry.js";
 import { clientManager } from "./clientManager.js";
 import { logAudit } from "../services/audit.js";
@@ -9,8 +9,16 @@ import { db } from "../db/index.js";
 import { api_keys } from "../db/schema.js";
 import { isNull } from "drizzle-orm";
 import bcrypt from "bcrypt";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { mcpContext } from "./context.js";
+import { users } from "../db/schema.js";
+import { eq } from "drizzle-orm";
+import { isToolAllowed } from "../utils/rbac.js";
 
 export function setupMcpServer(app: express.Application) {
+  const sseTransports = new Map<string, SSEServerTransport>();
+
+  function createMcpServerInstance() {
 
   const server = new Server({
     name: "urumi-gateway",
@@ -20,24 +28,54 @@ export function setupMcpServer(app: express.Application) {
   });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools = registry.getAllTools().map(t => ({
-      name: t.namespacedName,
-      description: t.description,
-      inputSchema: t.inputSchema as any
-    }));
+    const ctx = mcpContext.getStore();
+    const role = ctx?.role || "member";
+    const tools = registry.getAllTools()
+      .filter(t => isToolAllowed(role, t.namespacedName))
+      .map(t => ({
+        name: t.namespacedName,
+        description: t.description,
+        inputSchema: t.inputSchema as any
+      }));
     return { tools };
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const toolName = request.params.name;
     const args = request.params.arguments || {};
-    // Extract userId from extra.request.headers (populated by express)
-    const userId = (extra as any).requestInfo?.headers?.get("x-urumi-user-id");
-    const serverId = (extra as any).requestInfo?.headers?.get("x-urumi-server-id");
+    
+    const ctx = mcpContext.getStore();
+    const userId = ctx?.userId;
+    const role = ctx?.role || "member";
     
     const tool = registry.getTool(toolName);
     if (!tool) {
       throw new Error(`Tool not found: ${toolName}`);
+    }
+
+    if (!isToolAllowed(role, toolName)) {
+      await logAudit({
+        userId: userId,
+        serverId: tool.serverId,
+        namespacedTool: toolName,
+        toolName: tool.originalToolName,
+        requestParams: args,
+        outcome: "denied" as any,
+        errorMessage: "Access denied to tool",
+        durationMs: 0,
+        source: ctx?.source || "mcp-client",
+        startedAt: new Date(),
+        completedAt: new Date()
+      });
+      // The requirement says: be rejected with HTTP/JSON-RPC 403 if directly invoked
+      // Throwing an error with code -32000 (which is JSON-RPC standard for generic server error)
+      // or we can just throw Error which will map to internal error.
+      // We can create a specific MCP error, but throwing a standard Error is usually handled by the SDK.
+      // Wait, can we throw McpError with code 403? The standard MCP errors don't easily allow arbitrary HTTP codes inside JSON-RPC.
+      // But the requirement says "be rejected with HTTP/JSON-RPC 403 if directly invoked". 
+      // The MCP SDK maps throw to JSON-RPC errors.
+      // Let's throw a custom error.
+      throw new McpError(403, `Access denied: Tool ${toolName} is not allowed for role ${role}`);
     }
     
     const managed = clientManager.getClient(tool.serverName);
@@ -70,6 +108,8 @@ export function setupMcpServer(app: express.Application) {
         errorMessage = err.message || "Unknown error calling upstream tool";
       }
       
+      clientManager.markServerFailed(tool.serverName, errorMessage || "Unknown error").catch(console.error);
+      
       result = {
         content: [{ type: "text", text: `Error: ${errorMessage}` }],
         isError: true
@@ -77,7 +117,7 @@ export function setupMcpServer(app: express.Application) {
     } finally {
       const completedAt = new Date();
       await logAudit({
-        userId: userId ? parseInt(userId, 10) : undefined,
+        userId: userId,
         serverId: tool.serverId,
         namespacedTool: toolName,
         toolName: tool.originalToolName,
@@ -85,7 +125,7 @@ export function setupMcpServer(app: express.Application) {
         outcome,
         errorMessage,
         durationMs: completedAt.getTime() - startedAt.getTime(),
-        source: "mcp-client",
+        source: ctx?.source || "mcp-client",
         startedAt,
         completedAt
       });
@@ -94,11 +134,12 @@ export function setupMcpServer(app: express.Application) {
     return result;
   });
 
-  // We need to inject user info into the request context before handing off to mcpHandler
-  const mcpHandler = createMcpHandler(() => server as any);
+  return server;
+  }
+
+  const statelessHandler = createMcpHandler(() => createMcpServerInstance() as any);
 
   app.use("/mcp", express.raw({ type: "*/*" }), async (req, res) => {
-    // Authenticate
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ error: "Missing or invalid Authorization header" });
@@ -130,34 +171,65 @@ export function setupMcpServer(app: express.Application) {
       return res.status(401).json({ error: "Invalid or revoked API key" });
     }
 
+    const [user] = await db.select({ role: users.role }).from(users).where(eq(users.id, matchedUserId));
+    const role = user?.role || "member";
+
     try {
-      const webReq = new Request("http://localhost/mcp", {
-        method: req.method,
-        headers: req.headers as any,
-        body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined
-      });
-      // Inject user ID for audit logging
-      webReq.headers.set("x-urumi-user-id", matchedUserId.toString());
-      if (matchedKeyId) {
-        webReq.headers.set("x-urumi-key-id", matchedKeyId.toString());
-      }
-      
-      const webRes = await mcpHandler.fetch(webReq);
-      res.status(webRes.status);
-      webRes.headers.forEach((value, key) => {
-        res.setHeader(key, value);
-      });
-      if (webRes.body) {
-        const reader = webRes.body.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(value);
+      await mcpContext.run({ userId: matchedUserId, keyId: matchedKeyId || undefined, role, source: "external" }, async () => {
+        if (req.method === "GET" && (req.url === "/" || req.url === "" || req.url === "/sse" || req.url === "/sse/")) {
+          const transport = new SSEServerTransport("/mcp/message", res as any);
+          const serverInstance = createMcpServerInstance();
+          await serverInstance.connect(transport);
+          sseTransports.set(transport.sessionId, transport);
+          res.on("close", () => {
+            sseTransports.delete(transport.sessionId);
+            serverInstance.close().catch(console.error);
+          });
+          return;
         }
-        res.end();
-      } else {
-        res.end();
-      }
+
+        if (req.method === "POST" && (req.url.startsWith("/message") || req.url.startsWith("/mcp/message"))) {
+          const sessionId = req.query.sessionId as string;
+          const transport = sseTransports.get(sessionId);
+          if (!transport) {
+            return res.status(404).json({ error: "Session not found" });
+          }
+          
+          let parsedBody;
+          try {
+            parsedBody = JSON.parse(req.body.toString("utf8"));
+          } catch (e) {
+            return res.status(400).json({ error: "Invalid JSON" });
+          }
+          
+          await transport.handlePostMessage(req as any, res as any, parsedBody);
+          return;
+        }
+
+        const targetUrl = `http://localhost${req.url === '/' ? '' : req.url}`;
+        const webReq = new Request(targetUrl, {
+          method: req.method,
+          headers: req.headers as any,
+          body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined
+        });
+      
+        const webRes = await statelessHandler.fetch(webReq);
+        res.status(webRes.status);
+        webRes.headers.forEach((value, key) => {
+          res.setHeader(key, value);
+        });
+        if (webRes.body) {
+          const reader = webRes.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(value);
+          }
+          res.end();
+        } else {
+          res.end();
+        }
+      });
     } catch (error) {
       console.error("MCP bridge error:", error);
       if (!res.headersSent) {

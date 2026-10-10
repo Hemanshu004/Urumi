@@ -8,7 +8,7 @@ async function run() {
     .sign(secret);
     
   const msg = {
-    message: "Show me the open issues in the Urumi repository."
+    message: "Show me the open issues in the hemanshu004/urumi repository."
   };
   
   const res = await fetch("http://api.urumi.local/api/chat", {

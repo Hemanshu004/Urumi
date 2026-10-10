@@ -3,7 +3,32 @@ import dns from "dns";
 import ipaddr from "ipaddr.js";
 import { promisify } from "util";
 
-const resolve = promisify(dns.resolve4);
+const resolve4 = promisify(dns.resolve4);
+const resolve6 = promisify(dns.resolve6);
+
+// Allowlist of legitimate internal Kubernetes service names
+const ALLOWED_INTERNAL_HOSTS = new Set([
+  "woo-mcp",
+  "github-mcp",
+  "weather-mcp"
+]);
+
+// Allowlist of Kubernetes internal DNS suffixes (configurable via env if needed)
+const ALLOWED_INTERNAL_SUFFIXES = [
+  ".svc.cluster.local"
+];
+
+function isAllowedInternalHost(hostname: string): boolean {
+  if (ALLOWED_INTERNAL_HOSTS.has(hostname.toLowerCase())) {
+    return true;
+  }
+  for (const suffix of ALLOWED_INTERNAL_SUFFIXES) {
+    if (hostname.toLowerCase().endsWith(suffix)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export async function validateUrlForSSRF(urlString: string): Promise<string> {
   let parsedUrl: URL;
@@ -17,17 +42,25 @@ export async function validateUrlForSSRF(urlString: string): Promise<string> {
     throw new Error("URL must use http or https protocol");
   }
 
-  const hostname = parsedUrl.hostname;
+  const hostname = parsedUrl.hostname.toLowerCase();
   
-  // Try parsing as IP directly
+  if (hostname === "localhost") {
+    throw new Error("SSRF Prevention: URL resolves to restricted IP range (loopback)");
+  }
+  
   let addresses: string[] = [];
   if (ipaddr.isValid(hostname)) {
     addresses = [hostname];
   } else {
-    // Resolve DNS
     try {
-      addresses = await resolve(hostname);
-    } catch (err) {
+      // Resolve both IPv4 and IPv6
+      const ipv4s = await resolve4(hostname).catch(() => []);
+      const ipv6s = await resolve6(hostname).catch(() => []);
+      addresses = [...ipv4s, ...ipv6s];
+      if (addresses.length === 0) {
+         throw new Error(`Failed to resolve hostname: ${hostname}`);
+      }
+    } catch (err: any) {
       throw new Error(`Failed to resolve hostname: ${hostname}`);
     }
   }
@@ -37,33 +70,41 @@ export async function validateUrlForSSRF(urlString: string): Promise<string> {
       const ip = ipaddr.parse(address);
       const range = ip.range();
 
-      // Block all non-public IPv4
+      // Blocked ranges according to requirements
       const blockedRanges = [
         "unspecified",
         "broadcast",
         "multicast",
         "linkLocal",
         "loopback",
-        "private",
-        "carrierGradeNat",
-        "reserved"
+        "carrierGradeNat", // Usually 100.64.0.0/10, not private but not public
       ];
 
       if (blockedRanges.includes(range)) {
         throw new Error(`SSRF Prevention: URL resolves to restricted IP range (${range})`);
       }
 
-      // Check cloud metadata services explicitly
+      // Explicit Cloud Metadata checks (some are link-local, but just to be sure)
       if (address === "169.254.169.254" || address === "169.254.169.253" || address === "100.100.100.200") {
         throw new Error("SSRF Prevention: URL resolves to cloud metadata address");
       }
+
+      // Handle private RFC1918 addresses
+      // Private IP = DENY by default
+      // Legitimate Kubernetes MCP destination = explicit ALLOW
+      if (range === "private") {
+        if (!isAllowedInternalHost(hostname)) {
+          throw new Error("SSRF Prevention: URL resolves to restricted IP range (private). Legitimate internal destinations must be added to the allowlist.");
+        }
+      }
+
     } catch (err: any) {
-      if (err.message.startsWith("SSRF")) throw err;
+      if (err.message.startsWith("SSRF")) {
+        throw err;
+      }
       throw new Error(`Invalid IP address resolved: ${address}`);
     }
   }
 
-  // To prevent DNS rebinding bypass where practical, we can return the IP-based URL
-  // but MCP often requires proper hostnames for SNI and TLS, so we return the original URL if it passes.
   return urlString;
 }

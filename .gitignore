@@ -120,3 +120,12 @@ dist
 *.njsproj
 *.sln
 *.sw?
+
+# Generated test artifacts and secrets
+cookies.txt
+response.json
+sse.log
+sse_out.txt
+test-*.ts
+create-key.ts
+update-secret.ts
