@@ -48,6 +48,8 @@ export const api = {
   
   getMe: () => fetchApi("/api/auth/me", { method: "GET" }),
   getUsers: () => fetchApi("/api/auth/users", { method: "GET" }),
+  createUser: (data: any) => fetchApi("/api/auth/users", { method: "POST", body: JSON.stringify(data) }),
+  updateUserRole: (id: number, role: string) => fetchApi(`/api/auth/users/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
   
   getServers: () => fetchApi("/api/servers", { method: "GET" }),
   addServer: (data: any) => fetchApi("/api/servers", { method: "POST", body: JSON.stringify(data) }),
@@ -59,6 +61,11 @@ export const api = {
   revokeApiKey: (id: number) => fetchApi(`/api/api-keys/${id}`, { method: "DELETE" }),
   
   getAuditLogs: () => fetchApi("/api/audit", { method: "GET" }),
+  getHealth: () => fetchApi("/health/ready", { method: "GET" }),
   
   chat: (data: any) => fetchApi("/api/chat", { method: "POST", body: JSON.stringify(data) }),
+
+  getPermissions: (role: string) => fetchApi(`/api/permissions/${role}`, { method: "GET" }),
+  grantPermission: (role: string, tool: string) => fetchApi(`/api/permissions/${role}/grant`, { method: "POST", body: JSON.stringify({ namespacedTool: tool }) }),
+  revokePermission: (role: string, tool: string) => fetchApi(`/api/permissions/${role}/revoke`, { method: "POST", body: JSON.stringify({ namespacedTool: tool }) }),
 };

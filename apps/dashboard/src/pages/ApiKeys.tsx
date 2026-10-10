@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import { api } from "../services/api";
 import { Copy, Trash2, CheckCircle2 } from "lucide-react";
+import { AuthContext } from "../App";
 
 export default function ApiKeys() {
+  const { user: currentUser } = useContext(AuthContext);
   const [keys, setKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [label, setLabel] = useState("");
@@ -54,6 +56,8 @@ export default function ApiKeys() {
 
   if (loading) return <div>Loading...</div>;
 
+  const isAdmin = currentUser?.role === "admin";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ flexShrink: 0 }}>
@@ -103,6 +107,7 @@ export default function ApiKeys() {
               <tr>
                 <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Label</th>
                 <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Prefix</th>
+                {isAdmin && <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>User</th>}
                 <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Created</th>
                 <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Last Used</th>
                 <th style={{ backgroundColor: "var(--bg-elevated)", borderBottom: "1px solid var(--border)" }}>Status</th>
@@ -114,6 +119,7 @@ export default function ApiKeys() {
                 <tr key={k.id}>
                   <td style={{ fontWeight: 500 }}>{k.label}</td>
                   <td style={{ fontFamily: "monospace", color: "var(--text-muted)" }}>{k.key_prefix}...</td>
+                  {isAdmin && <td>{k.user_email}</td>}
                   <td>{new Date(k.created_at).toLocaleDateString()}</td>
                   <td>{k.last_used_at ? new Date(k.last_used_at).toLocaleString() : "Never"}</td>
                   <td>
@@ -134,7 +140,7 @@ export default function ApiKeys() {
               ))}
               {keys.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>No API keys found.</td>
+                  <td colSpan={isAdmin ? 7 : 6} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>No API keys found.</td>
                 </tr>
               )}
             </tbody>

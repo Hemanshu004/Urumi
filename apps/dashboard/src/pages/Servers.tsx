@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../services/api";
-import { CheckCircle2, XCircle, Trash2, Power } from "lucide-react";
+import { CheckCircle2, XCircle, Trash2, Power, Edit } from "lucide-react";
 
 export default function Servers() {
   const [servers, setServers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingServer, setEditingServer] = useState<any | null>(null);
 
   const fetchServers = async () => {
     try {
@@ -36,11 +37,31 @@ export default function Servers() {
     }
   };
 
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingServer) return;
+    try {
+      const updates: any = {
+        name: editingServer.name,
+        url: editingServer.url,
+        timeout_ms: parseInt(editingServer.timeout_ms)
+      };
+      if (editingServer.credential !== undefined) {
+        updates.credential = editingServer.credential;
+      }
+      await api.updateServer(editingServer.id, updates);
+      setEditingServer(null);
+      fetchServers();
+    } catch (err: any) {
+      alert(err.message || "Failed to update server");
+    }
+  };
+
   if (loading) return <div>Loading...</div>;
   if (error) return <div style={{ padding: "2rem", color: "var(--danger)" }}>{error}</div>;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", position: "relative" }}>
       <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}>MCP Servers</h1>
       </div>
@@ -70,9 +91,9 @@ export default function Servers() {
                   <td>
                     {server.enabled ? (
                       server.status === "connected" ? (
-                        <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><CheckCircle2 size={14}/> Connected</span>
+                        <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status_message}><CheckCircle2 size={14}/> Connected</span>
                       ) : (
-                        <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}><XCircle size={14}/> {server.status}</span>
+                        <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status_message}><XCircle size={14}/> {server.status}</span>
                       )
                     ) : (
                       <span style={{ color: "var(--text-muted)" }}>Disabled</span>
@@ -93,6 +114,9 @@ export default function Servers() {
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button onClick={() => setEditingServer({...server, credential: undefined})} style={{ padding: "0.5rem", background: "none", color: "var(--text)" }} title="Edit">
+                        <Edit size={18} />
+                      </button>
                       <button onClick={() => handleToggle(server.id, !server.enabled)} style={{ padding: "0.5rem", background: "none", color: server.enabled ? "var(--text-muted)" : "var(--success)" }} title={server.enabled ? "Disable" : "Enable"}>
                         <Power size={18} />
                       </button>
@@ -112,6 +136,36 @@ export default function Servers() {
           </table>
         </div>
       </div>
+      
+      {editingServer && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+          <div className="card" style={{ width: "400px", maxWidth: "90%" }}>
+            <h3 style={{ marginBottom: "1rem" }}>Edit Server</h3>
+            <form onSubmit={handleEditSubmit}>
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="input-label">Name</label>
+                <input type="text" className="input-field" value={editingServer.name} onChange={e => setEditingServer({...editingServer, name: e.target.value})} required />
+              </div>
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="input-label">URL</label>
+                <input type="url" className="input-field" value={editingServer.url} onChange={e => setEditingServer({...editingServer, url: e.target.value})} required />
+              </div>
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="input-label">Timeout (ms)</label>
+                <input type="number" className="input-field" value={editingServer.timeout_ms} onChange={e => setEditingServer({...editingServer, timeout_ms: e.target.value})} required />
+              </div>
+              <div style={{ marginBottom: "1.5rem" }}>
+                <label className="input-label">Credential (Leave empty to keep current, clear to remove)</label>
+                <input type="text" className="input-field" placeholder="Bearer Token / API Key" value={editingServer.credential === undefined ? "" : editingServer.credential} onChange={e => setEditingServer({...editingServer, credential: e.target.value})} />
+              </div>
+              <div style={{ display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
+                <button type="button" className="btn-secondary" onClick={() => setEditingServer(null)}>Cancel</button>
+                <button type="submit" className="btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

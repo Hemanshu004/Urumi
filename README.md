@@ -76,7 +76,7 @@ Deploy the entire stack using Helm.
 ```bash
 helm install urumi infra/helm/urumi -n urumi --create-namespace
 ```
-Secrets will be auto-generated for passwords if not provided, though you can pass explicit values via `--set` or a values file.
+Secrets will be auto-generated if not provided. To create the initial admin and member accounts, you must explicitly provide passwords via `--set secrets.adminPassword=YOUR_PASSWORD --set secrets.memberPassword=YOUR_PASSWORD` or a values file.
 
 ### 3. WordPress/WooCommerce Scaffold
 Once pods are running, initialize WooCommerce:
@@ -91,16 +91,96 @@ To fully utilize the chat agent and external integrations, the following secrets
 
 ## How to Run the Project & Verify Major Flows
 1. **Access the Dashboard:** Go to `http://dashboard.urumi.local`.
-2. **Login:** Use the default admin credentials (`admin@urumi.local` / `admin123`).
+2. **Login:** Use the admin credentials you provided via `.Values.secrets.adminPassword` (default email: `admin@urumi.local`). If you didn't provide a password during installation, no initial user is created.
 3. **Verify Upstreams:** Navigate to the **Servers** page and ensure the upstream servers (`woo-mcp`, `github-mcp`, `weather-mcp`) are connected. You can disable/enable them here to test isolation.
 4. **Chat Agent Flow:** Navigate to **Chat**, ask a question (e.g., "What is the weather in London?"), and observe the agent automatically invoking the `weather__get_weather` tool.
 5. **Verify Audit Logs:** Go to the **Audit Logs** page to see the record of your recent tool executions.
 6. **Generate API Key:** In the **API Keys** section, generate a key and configure your local external MCP client (like Claude Desktop) to connect to `http://api.urumi.local/mcp`.
 
-## Standout Features
-- **Dual-Role MCP Architecture:** Operates as both an MCP Client (to upstreams) and an MCP Server (to external clients), seamlessly aggregating and namespacing tools.
-- **Dynamic Server Management:** Connect or disable upstream MCP servers dynamically through the Dashboard without restarting the Gateway.
-- **Robust SSRF Prevention:** Strictly evaluates internal/external IP addresses to prevent external LLM inputs from exploiting internal metadata endpoints.
-- **Role-Based Access Control:** Highly granular tool-level RBAC restricting `member` access to sensitive capabilities while allowing `admin` full operation.
-- **Extensive Audit Logging:** Cryptographically hashed API keys tied intrinsically to User IDs, creating a non-repudiable ledger of all executions, their duration, and outcome boundaries.
-- **Helm Local/Prod Parity:** Uses a single, unified Helm chart for both `kind` local deployment and clustered production environments, relying strictly on values overrides.
+## Operations & Security
+
+### User and Role Management
+Users can be assigned either an `admin` or `member` role. Role updates instantly limit access to administrative dashboard routes.
+
+### Granting and Revoking Tool Permissions
+Permissions are dynamically managed per role. Revoking a tool's permission immediately interrupts access in the Chat interface and External MCP endpoints without requiring session resets.
+
+### API Key Creation and Revocation
+Generate API keys for external MCP clients in the dashboard. The raw key is only shown once. Revoking a key terminates access instantly with a `401 Unauthorized` response on the next SSE heartbeat or REST call.
+
+### Upstream Configuration and Credential Management
+Upstream servers can be edited and toggled (enabled/disabled). Decrypted upstream credentials (like GitHub tokens or Woo API keys) are injected securely via the Gateway DB directly to the execution layer.
+
+### Troubleshooting Disconnected MCP Servers
+If an upstream disconnects:
+1. The gateway executes an exponential backoff health loop with jitter.
+2. Check the **Servers** tab for the exact failure reason (e.g. `ECONNREFUSED` or `Timeout`).
+3. The Gateway logs (`/health/live`) continue functioning.
+4. If a server is permanently unavailable, disable it in the UI to halt reconnection attempts.
+
+### Backup, Restore, and Secret Rotation Limitations
+- **Backup:** Use standard Postgres/MariaDB dump utilities to backup `gateway-db`.
+- **Secret Rotation:** Currently, rotating the master `JWT_SECRET` invalidates all active dashboard sessions. 
+- **Limitations:** API key hashes cannot be reversed; lost keys must be regenerated.
+
+### Known Risks and Security Boundaries
+- **SSRF Mitigation:** IP restrictions prevent LLM tools from pinging internal cloud metadata (e.g., `169.254.169.254`).
+- **NetworkPolicies:** Pods are tightly constrained; `woo-mcp` can only communicate with the `wordpress` pod.
+- **Warning:** Do NOT expose the upstream MCP microservices (ports 3001+) directly to external ingress.
+
+## Production-style Deployment
+
+Urumi is built for real-world Kubernetes (e.g., k3s, EKS, GKE). Use the provided Helm chart with a `values-prod.yaml` override.
+
+### Image Publishing and Pull Policies
+Build the images and push them to a private container registry. In your production `values.yaml`, override:
+```yaml
+gateway:
+  image:
+    repository: myregistry.com/urumi/gateway
+    tag: "1.0.0"
+    pullPolicy: Always
+```
+
+### Ingress and DNS/TLS Configuration
+To expose services via a real domain with TLS (cert-manager):
+```yaml
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: dashboard.urumi.example.com
+      paths: [{ path: "/", pathType: Prefix }]
+  tls:
+    - secretName: urumi-tls
+      hosts: ["dashboard.urumi.example.com"]
+```
+
+### Storage Requirements
+Ensure your cluster provides a default StorageClass for persistent volumes:
+- `gateway-db` requires `1Gi` (configurable).
+- `wordpress-db` requires `1Gi`.
+- `wordpress` requires `1Gi`.
+
+### Secrets Management
+Never commit production secrets in plain text. Use external secret operators (like External Secrets Operator) or inject them directly via Helm CLI at CI/CD deploy time:
+```bash
+helm upgrade --install urumi ./infra/helm/urumi \
+  --set secrets.adminPassword="STRONG_ADMIN_PASSWORD" \
+  --set secrets.jwtSecret="STRONG_32_CHAR_JWT_SECRET" \
+  --set secrets.llmApiKey="YOUR_LLM_PROVIDER_KEY"
+```
+
+### Resource and Networking Requirements
+The default `values.yaml` includes basic resource limits. In production, appropriately tune memory and CPU requests/limits for the `gateway` and LLM orchestration load.
+```yaml
+gateway:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+```
+The chart automatically deploys strict `NetworkPolicy` rules. Ensure your CNI (e.g., Calico or Cilium) enforces NetworkPolicies.

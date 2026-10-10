@@ -96,6 +96,9 @@ export default function Layout() {
               <NavLink to="/team" onClick={() => setIsMobileOpen(false)} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
                 <Users size={18} /> Team
               </NavLink>
+              <NavLink to="/permissions" onClick={() => setIsMobileOpen(false)} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+                <Server size={18} /> Tool Permissions
+              </NavLink>
             </>
           )}
         </div>

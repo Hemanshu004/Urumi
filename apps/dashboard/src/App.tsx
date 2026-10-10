@@ -9,6 +9,7 @@ import ApiKeys from "./pages/ApiKeys";
 import AuditLogs from "./pages/AuditLogs";
 import Chat from "./pages/Chat";
 import Team from "./pages/Team";
+import Permissions from "./pages/Permissions";
 import Layout from "./components/Layout";
 import { ChatProvider } from "./context/ChatContext";
 
@@ -98,6 +99,7 @@ export default function App() {
               <Route path="/api-keys" element={<ProtectedRoute adminOnly><ApiKeys /></ProtectedRoute>} />
               <Route path="/audit" element={<ProtectedRoute adminOnly><AuditLogs /></ProtectedRoute>} />
               <Route path="/team" element={<ProtectedRoute adminOnly><Team /></ProtectedRoute>} />
+              <Route path="/permissions" element={<ProtectedRoute adminOnly><Permissions /></ProtectedRoute>} />
             </Route>
           </Routes>
         </ChatProvider>

@@ -14,12 +14,9 @@ import { mcpContext } from "./context.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { isToolAllowed } from "../utils/rbac.js";
+import { logger } from "../utils/logger.js";
 
-export function setupMcpServer(app: express.Application) {
-  const sseTransports = new Map<string, SSEServerTransport>();
-
-  function createMcpServerInstance() {
-
+export function createMcpServerInstance() {
   const server = new Server({
     name: "urumi-gateway",
     version: "1.0.0"
@@ -30,9 +27,14 @@ export function setupMcpServer(app: express.Application) {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const ctx = mcpContext.getStore();
     const role = ctx?.role || "member";
-    const tools = registry.getAllTools()
-      .filter(t => isToolAllowed(role, t.namespacedName))
-      .map(t => ({
+    const allTools = registry.getAllTools();
+    const allowedTools = [];
+    for (const t of allTools) {
+      if (await isToolAllowed(role, t.namespacedName)) {
+        allowedTools.push(t);
+      }
+    }
+    const tools = allowedTools.map(t => ({
         name: t.namespacedName,
         description: t.description,
         inputSchema: t.inputSchema as any
@@ -53,7 +55,7 @@ export function setupMcpServer(app: express.Application) {
       throw new Error(`Tool not found: ${toolName}`);
     }
 
-    if (!isToolAllowed(role, toolName)) {
+    if (!(await isToolAllowed(role, toolName))) {
       await logAudit({
         userId: userId,
         serverId: tool.serverId,
@@ -89,16 +91,7 @@ export function setupMcpServer(app: express.Application) {
     let result: any;
 
     try {
-      const timeoutMs = 30000;
-      
-      result = await Promise.race([
-        managed.client.callTool({
-          name: tool.originalToolName,
-          arguments: args
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs))
-      ]);
-
+      result = await clientManager.callToolWithTimeout(tool.serverName, tool.originalToolName, args);
     } catch (err: any) {
       if (err.message === "Timeout") {
         outcome = "timeout";
@@ -108,7 +101,10 @@ export function setupMcpServer(app: express.Application) {
         errorMessage = err.message || "Unknown error calling upstream tool";
       }
       
-      clientManager.markServerFailed(tool.serverName, errorMessage || "Unknown error").catch(console.error);
+      // Do not mark the server as permanently failed just because of a single timeout, 
+      // but do so for other hard errors if necessary. Actually, the previous implementation 
+      // did mark it failed on timeout. Let's preserve the existing behavior of markServerFailed.
+      clientManager.markServerFailed(tool.serverName, errorMessage || "Unknown error").catch(err => logger.error("Failed to mark server failed", { error: err.message, server: tool.serverName }));
       
       result = {
         content: [{ type: "text", text: `Error: ${errorMessage}` }],
@@ -135,8 +131,10 @@ export function setupMcpServer(app: express.Application) {
   });
 
   return server;
-  }
+}
 
+export function setupMcpServer(app: express.Application) {
+  const sseTransports = new Map<string, SSEServerTransport>();
   const statelessHandler = createMcpHandler(() => createMcpServerInstance() as any);
 
   app.use("/mcp", express.raw({ type: "*/*" }), async (req, res) => {
@@ -183,7 +181,7 @@ export function setupMcpServer(app: express.Application) {
           sseTransports.set(transport.sessionId, transport);
           res.on("close", () => {
             sseTransports.delete(transport.sessionId);
-            serverInstance.close().catch(console.error);
+            serverInstance.close().catch(err => logger.error("Failed to close SSE server instance", { error: err.message }));
           });
           return;
         }
@@ -230,8 +228,8 @@ export function setupMcpServer(app: express.Application) {
           res.end();
         }
       });
-    } catch (error) {
-      console.error("MCP bridge error:", error);
+    } catch (error: any) {
+      logger.error("MCP bridge error", { error: error.message });
       if (!res.headersSent) {
         res.status(500).json({ error: "Internal Server Error" });
       }

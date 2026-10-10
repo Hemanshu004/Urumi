@@ -53,15 +53,13 @@ export async function validateUrlForSSRF(urlString: string): Promise<string> {
     addresses = [hostname];
   } else {
     try {
-      // Resolve both IPv4 and IPv6
-      const ipv4s = await resolve4(hostname).catch(() => []);
-      const ipv6s = await resolve6(hostname).catch(() => []);
-      addresses = [...ipv4s, ...ipv6s];
+      const results = await dns.promises.lookup(hostname, { all: true });
+      addresses = results.map((r: any) => r.address);
       if (addresses.length === 0) {
          throw new Error(`Failed to resolve hostname: ${hostname}`);
       }
     } catch (err: any) {
-      throw new Error(`Failed to resolve hostname: ${hostname}`);
+      throw new Error(`Failed to resolve hostname: ${hostname} (${err.message})`);
     }
   }
 

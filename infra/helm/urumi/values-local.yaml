@@ -1,3 +1,6 @@
 # Local configurations overrides
 replicaCount: 1
 ingress: {}
+secrets:
+  adminPassword: "admin123"
+  memberPassword: "member123"

@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { logger } from '../utils/logger.js';
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -61,7 +62,7 @@ export class OpenAILikeProvider implements LLMProvider {
     }
 
     const jsonResponse = await res.json();
-    console.log("LLM Response structure:", JSON.stringify(jsonResponse, null, 2));
+    logger.info("LLM Response structure", { response: jsonResponse });
     return jsonResponse;
   }
 }
@@ -195,7 +196,7 @@ export class GeminiProvider implements LLMProvider {
           const jitter = Math.random() * 500;
           const waitTime = baseDelay + jitter;
           
-          console.warn(`[GeminiProvider] Transient error detected (${is503 ? '503' : '429'}). Retrying in ${Math.round(waitTime)}ms (attempt ${attempt + 1}/${maxRetries})`);
+          logger.warn(`[GeminiProvider] Transient error detected (${is503 ? '503' : '429'}). Retrying...`, { attempt: attempt + 1, maxRetries, waitTimeMs: Math.round(waitTime) });
           
           await delay(waitTime);
           attempt++;

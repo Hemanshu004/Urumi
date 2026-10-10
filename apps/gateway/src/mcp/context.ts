@@ -5,6 +5,7 @@ export interface McpContext {
   keyId?: number;
   role?: string;
   source?: string;
+  requestId?: string;
 }
 
 export const mcpContext = new AsyncLocalStorage<McpContext>();

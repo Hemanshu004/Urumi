@@ -85,8 +85,8 @@ else
 fi
 
 echo "⏳ Installing REST API Host Fix MU-Plugin..."
-kubectl exec -n urumi "$WP_POD" -- su -s /bin/sh www-data -c "mkdir -p /var/www/html/wp-content/mu-plugins"
-kubectl exec -n urumi "$WP_POD" -- su -s /bin/sh www-data -c "cat << 'PHP_EOF' > /var/www/html/wp-content/mu-plugins/wc-rest-host-fix.php
+kubectl exec -n urumi "$WP_POD" -- sh -c "mkdir -p /var/www/html/wp-content/mu-plugins"
+kubectl exec -n urumi "$WP_POD" -- sh -c "cat << 'PHP_EOF' > /var/www/html/wp-content/mu-plugins/wc-rest-host-fix.php
 <?php
 add_filter('home_url', function(\$url, \$path, \$orig_scheme, \$blog_id) {
     if (isset(\$_SERVER['HTTP_HOST']) && strpos(\$_SERVER['REQUEST_URI'] ?? '', '/wc/v') !== false) {
@@ -104,5 +104,6 @@ add_filter('site_url', function(\$url, \$path, \$scheme, \$blog_id) {
     return \$url;
 }, 10, 4);
 PHP_EOF"
+kubectl exec -n urumi "$WP_POD" -- sh -c "chown -R www-data:www-data /var/www/html/wp-content/mu-plugins"
 
 echo "🎉 WooCommerce setup complete!"

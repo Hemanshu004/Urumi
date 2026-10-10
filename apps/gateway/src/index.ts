@@ -8,9 +8,13 @@ import { apiKeysRouter } from "./routes/apiKeys.js";
 import { serversRouter } from "./routes/servers.js";
 import { auditRouter } from "./routes/audit.js";
 import { chatRouter } from "./routes/chat.js";
+import { permissionsRouter } from "./routes/permissions.js";
 import { setupMcpServer } from "./mcp/server.js";
 import { seedDatabase } from "./db/seed.js";
 import { clientManager } from "./mcp/clientManager.js";
+import { logger } from "./utils/logger.js";
+import { db } from "./db/index.js";
+import { sql } from "drizzle-orm";
 
 dotenv.config();
 
@@ -23,8 +27,42 @@ app.use(cookieParser());
 // Setup MCP Server at /mcp
 setupMcpServer(app);
 
+import crypto from "crypto";
+
 app.use(express.json({ limit: "1mb" }));
 
+app.use((req: any, res: express.Response, next: express.NextFunction) => {
+  req.id = crypto.randomUUID();
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    logger.info("HTTP Request", {
+      requestId: req.id,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs: duration,
+      userId: req.user?.id
+    });
+  });
+  next();
+});
+
+app.get("/health/live", (req, res) => {
+  res.json({ status: "healthy" });
+});
+
+app.get("/health/ready", async (req, res) => {
+  try {
+    await db.execute(sql`SELECT 1`);
+    res.json({ status: "ready" });
+  } catch (err: any) {
+    logger.error("Readiness check failed", { error: err.message });
+    res.status(503).json({ status: "unready", error: "Database unavailable" });
+  }
+});
+
+// Legacy endpoint for backward compatibility
 app.get("/health", (req, res) => {
   res.json({ status: "healthy" });
 });
@@ -34,24 +72,41 @@ app.use("/api/api-keys", apiKeysRouter);
 app.use("/api/servers", serversRouter);
 app.use("/api/audit", auditRouter);
 app.use("/api/chat", chatRouter);
+app.use("/api/permissions", permissionsRouter);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error("Unhandled error:", err.message); // Never expose stack traces
+  logger.error("Unhandled error", { error: err.message, path: req.path });
   res.status(500).json({ error: "Internal Server Error" });
 });
 
 async function start() {
-  console.log("⏳ Running database seed...");
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    logger.error("FATAL: JWT_SECRET environment variable is missing or insufficiently configured. It must be at least 32 characters long.");
+    process.exit(1);
+  }
+  
+  logger.info("Running database seed...");
   await seedDatabase();
-  console.log("⏳ Initializing upstream MCP clients...");
+  logger.info("Initializing upstream MCP clients...");
   await clientManager.initializeAll();
   
-  app.listen(PORT, () => {
-    console.log(`Gateway listening on port ${PORT}`);
+  clientManager.startHealthCheckLoop(30000);
+  
+  const server = app.listen(PORT, () => {
+    logger.info(`Gateway listening on port ${PORT}`);
   });
+  
+  const shutdown = () => {
+    logger.info("Shutting down gracefully...");
+    clientManager.stopHealthCheckLoop();
+    server.close(() => process.exit(0));
+  };
+  
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 start().catch(err => {
-  console.error("Failed to start gateway:", err);
+  logger.error("Failed to start gateway", { error: err.message });
   process.exit(1);
 });

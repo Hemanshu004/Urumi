@@ -7,6 +7,7 @@ import { clientManager } from "../mcp/clientManager.js";
 import { registry } from "../mcp/registry.js";
 import { validateUrlForSSRF } from "../utils/ssrf.js";
 import { encryptCredential } from "../utils/crypto.js";
+import { logger } from "../utils/logger.js";
 import { z } from "zod";
 
 export const serversRouter = Router();
@@ -62,7 +63,7 @@ serversRouter.post("/", async (req, res) => {
       builtin: false
     }).returning();
     
-    clientManager.connectServer(server).catch(console.error);
+    clientManager.connectServer(server).catch(err => logger.error("Failed to connect new server", { error: err.message, server: server.name }));
 
     res.json({ server });
   } catch (err: any) {
@@ -72,7 +73,7 @@ serversRouter.post("/", async (req, res) => {
     if (err.message && err.message.startsWith("SSRF Prevention")) {
       return res.status(400).json({ error: err.message });
     }
-    console.error("Error creating server:", err);
+    logger.error("Error creating server", { error: err.message });
     res.status(500).json({ error: err.message || "Failed to add server" });
   }
 });
@@ -88,8 +89,11 @@ serversRouter.get("/:id", async (req, res) => {
 });
 
 const patchSchema = z.object({
+  name: z.string().min(1).max(50).optional(),
+  url: z.string().url().optional(),
   enabled: z.boolean().optional(),
-  timeout_ms: z.number().optional()
+  timeout_ms: z.number().optional(),
+  credential: z.string().optional()
 });
 
 serversRouter.patch("/:id", async (req, res) => {
@@ -99,22 +103,43 @@ serversRouter.patch("/:id", async (req, res) => {
   try {
     const updates = patchSchema.parse(req.body);
     if (Object.keys(updates).length > 0) {
+      if (updates.url) await validateUrlForSSRF(updates.url);
+      
+      const [oldServer] = await db.select().from(upstream_servers).where(eq(upstream_servers.id, id));
+      if (!oldServer) return res.status(404).json({ error: "Server not found" });
+
+      const dbUpdates: any = { ...updates };
+      delete dbUpdates.credential;
+      if (updates.credential !== undefined) {
+         if (updates.credential === "") {
+             dbUpdates.credential_encrypted = null;
+         } else {
+             dbUpdates.credential_encrypted = encryptCredential(updates.credential);
+         }
+      }
+      
       const [updated] = await db.update(upstream_servers)
-        .set(updates)
+        .set(dbUpdates)
         .where(eq(upstream_servers.id, id))
         .returning();
         
       if (updated) {
         if (updates.enabled === false) {
-          await clientManager.disconnectServer(updated.name);
-        } else if (updates.enabled === true) {
-          clientManager.connectServer(updated).catch(console.error);
+          await clientManager.disconnectServer(oldServer.name);
+          registry.clearServerTools(oldServer.name);
+        } else if (updates.enabled === true || updates.url || updates.credential !== undefined || updates.timeout_ms || updates.name) {
+          await clientManager.disconnectServer(oldServer.name);
+          registry.clearServerTools(oldServer.name);
+          if (updated.enabled) {
+             clientManager.connectServer(updated).catch(err => logger.error("Failed to connect updated server", { error: err.message, server: updated.name }));
+          }
         }
       }
     }
     res.json({ message: "Updated successfully" });
   } catch (err: any) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.errors });
+    if (err.message && err.message.startsWith("SSRF Prevention")) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

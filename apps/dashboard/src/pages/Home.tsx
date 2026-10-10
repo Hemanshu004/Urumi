@@ -1,22 +1,25 @@
 import { useEffect, useState, useContext } from "react";
 import { api } from "../services/api";
 import { AuthContext } from "../App";
-import { Server, FileText, CheckCircle2, XCircle } from "lucide-react";
+import { Server, FileText, CheckCircle2, XCircle, Activity } from "lucide-react";
 
 export default function Home() {
   const { user } = useContext(AuthContext);
   const [servers, setServers] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
+  const [health, setHealth] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
       api.getServers(),
-      api.getAuditLogs()
-    ]).then(([sData, lData]) => {
+      api.getAuditLogs(),
+      api.getHealth().catch(() => ({ status: "unready" }))
+    ]).then(([sData, lData, hData]) => {
       setServers(sData.servers || []);
       setLogs((lData.logs || []).slice(0, 5));
+      setHealth(hData);
       setLoading(false);
     }).catch(err => {
       console.error(err);
@@ -47,6 +50,18 @@ export default function Home() {
             <div>
               <div style={{ fontSize: "2rem", fontWeight: "700" }}>{healthyServers.length} / {enabledServers.length}</div>
               <div style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Servers Connected</div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <div style={{ padding: "1rem", backgroundColor: "var(--bg-elevated)", borderRadius: "8px", border: "1px solid var(--border)" }}>
+              <Activity color={health?.status === "ready" ? "var(--success)" : "var(--danger)"} />
+            </div>
+            <div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "700" }}>{health?.status === "ready" ? "Healthy" : "Unhealthy"}</div>
+              <div style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Gateway Status</div>
             </div>
           </div>
         </div>

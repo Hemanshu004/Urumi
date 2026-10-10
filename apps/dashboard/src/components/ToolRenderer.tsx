@@ -32,7 +32,7 @@ export function ToolRenderer({ toolCall }: { toolCall: any }) {
       
       {hasCustomRenderer && (
         <div style={{ padding: "1rem" }}>
-          <CustomRenderer tool={tool} result={result} />
+          <CustomRenderer tool={tool} result={result} args={args} />
         </div>
       )}
 
@@ -88,7 +88,7 @@ const formatDate = (dateString: string) => {
   return isNaN(date.getTime()) ? "-" : date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
-function CustomRenderer({ tool, result }: { tool: string, result: any }) {
+function CustomRenderer({ tool, result, args }: { tool: string, result: any, args?: any }) {
   const data = extractResultData(result);
 
   if (tool === "woocommerce__list_orders") {
@@ -249,18 +249,33 @@ function CustomRenderer({ tool, result }: { tool: string, result: any }) {
 
   if (tool === "weather__get_weather") {
     const w = data || {};
+    
+    let conditions = w.conditions || w.condition || "Conditions not available";
+    if (w.weathercode !== undefined) {
+      const codes: Record<number, string> = {
+        0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+        45: "Fog", 48: "Depositing rime fog", 51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+        61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain", 71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow",
+        95: "Thunderstorm"
+      };
+      conditions = codes[w.weathercode] || `Code ${w.weathercode}`;
+    }
+    
+    const windStr = w.wind_speed || w.wind || w.windspeed !== undefined ? `${w.wind_speed || w.wind || w.windspeed} km/h` : "Not available";
+    const locationStr = w.location || (args?.latitude && args?.longitude ? `Lat: ${args.latitude}, Lon: ${args.longitude}` : "Location not available");
+
     return (
       <div style={{ padding: "1rem", border: "1px solid var(--border)", borderRadius: "8px", background: "var(--bg-elevated)", display: "inline-block", minWidth: "250px" }}>
-        <h3 style={{ margin: "0 0 0.5rem 0", fontSize: "1rem", fontWeight: 600 }}>{w.location || "Location not available"}</h3>
+        <h3 style={{ margin: "0 0 0.5rem 0", fontSize: "1rem", fontWeight: 600 }}>{locationStr}</h3>
         <div style={{ color: "var(--text-muted)", fontSize: "0.875rem", marginBottom: "1rem" }}>Current Weather</div>
         <div style={{ fontSize: "2.5rem", fontWeight: 700, color: "var(--primary)", marginBottom: "0.5rem", display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-          {w.temperature || w.temp ? `${w.temperature || w.temp}°C` : "N/A"}
+          {w.temperature !== undefined || w.temp !== undefined ? `${w.temperature ?? w.temp}°C` : "N/A"}
           <span style={{ fontSize: "0.875rem", color: "var(--text-muted)", fontWeight: 400 }}>
             {w.feels_like ? `Feels like ${w.feels_like}°C` : ""}
           </span>
         </div>
         <div style={{ color: "var(--text-main)", fontWeight: 500, marginBottom: "1rem" }}>
-          {w.conditions || w.condition || "Conditions not available"}
+          {conditions}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", fontSize: "0.875rem", borderTop: "1px solid var(--border)", paddingTop: "1rem" }}>
           <div>
@@ -269,7 +284,7 @@ function CustomRenderer({ tool, result }: { tool: string, result: any }) {
           </div>
           <div>
             <div style={{ color: "var(--text-muted)", marginBottom: "0.25rem" }}>Wind</div>
-            <div style={{ fontWeight: 500 }}>{w.wind_speed || w.wind ? `${w.wind_speed || w.wind} km/h` : "Not available"}</div>
+            <div style={{ fontWeight: 500 }}>{windStr}</div>
           </div>
         </div>
       </div>

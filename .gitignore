@@ -127,5 +127,9 @@ response.json
 sse.log
 sse_out.txt
 test-*.ts
+test-*.js
+test_e2e.js
 create-key.ts
 update-secret.ts
+generate-jwt.js
+hash.js

@@ -50,3 +50,10 @@ export const audit_logs = pgTable("audit_logs", {
   started_at: timestamp("started_at").notNull(),
   completed_at: timestamp("completed_at").notNull(),
 });
+
+export const role_permissions = pgTable("role_permissions", {
+  id: serial("id").primaryKey(),
+  role: varchar("role", { length: 50 }).notNull(),
+  namespaced_tool: varchar("namespaced_tool", { length: 512 }).notNull(),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+});
