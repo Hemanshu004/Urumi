@@ -156,4 +156,37 @@ describe("Chat Router", () => {
     expect(clientManager.callToolWithTimeout).toHaveBeenCalledTimes(1);
     expect(auditService.logAudit).toHaveBeenCalledWith(expect.objectContaining({ outcome: "success" }));
   });
+
+  it("includes dynamic current date in ISO format in system prompt while preserving required instructions", async () => {
+    (isToolAllowed as any).mockResolvedValue(true);
+    (registry.getAllTools as any).mockReturnValue([]);
+
+    mockChat.mockResolvedValueOnce({
+      choices: [{
+        message: {
+          role: "assistant",
+          content: "Hello! How can I help you today?"
+        }
+      }]
+    });
+
+    const expectedDate = new Date().toISOString().slice(0, 10);
+    const res = await request(app).post("/chat").send({ message: "Hello" });
+
+    expect(res.status).toBe(200);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+
+    const callArgs = mockChat.mock.calls[0][0];
+    const systemMsg = callArgs.find((m: any) => m.role === "system");
+    expect(systemMsg).toBeDefined();
+
+    // 1. Confirms the generated prompt contains the dynamic date in ISO format (YYYY-MM-DD)
+    expect(systemMsg.content).toContain(`Today's date is ${expectedDate}.`);
+    expect(systemMsg.content).toMatch(/Today's date is \d{4}-\d{2}-\d{2}\./);
+
+    // 2. Confirms that existing required instructions remain intact
+    expect(systemMsg.content).toContain("You are the Urumi MCP Agent.");
+    expect(systemMsg.content).toContain("The frontend UI will render structured data tables for your tool results automatically. Therefore, YOUR RESPONSES MUST BE VERY CONCISE.");
+    expect(systemMsg.content).toContain("SPECIFIC INSTRUCTION FOR GITHUB: When GitHub list_issues executes successfully and returns zero issues, you MUST respond clearly: 'No open issues were found in owner/repository.'");
+  });
 });

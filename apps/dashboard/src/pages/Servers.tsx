@@ -80,6 +80,13 @@ export default function Servers() {
     }
   };
 
+  const getStatusLabel = (status: string) => {
+    if (status === "connected") return "Connected";
+    if (status === "error") return "Unreachable";
+    if (status === "disconnected") return "Disconnected";
+    return status ? status.charAt(0).toUpperCase() + status.slice(1) : "Unknown";
+  };
+
   if (loading) return <div>Loading...</div>;
   if (error) return <div style={{ padding: "2rem", color: "var(--danger)" }}>{error}</div>;
 
@@ -117,7 +124,7 @@ export default function Servers() {
                       server.status === "connected" ? (
                         <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status_message}><CheckCircle2 size={14}/> Connected</span>
                       ) : (
-                        <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status_message}><XCircle size={14}/> {server.status}</span>
+                        <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status_message}><XCircle size={14}/> {getStatusLabel(server.status)}</span>
                       )
                     ) : (
                       <span style={{ color: "var(--text-muted)" }}>Disabled</span>

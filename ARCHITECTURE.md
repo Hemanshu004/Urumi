@@ -9,10 +9,10 @@ Urumi is an agentic platform designed to securely connect Large Language Models 
 ### Main Components
 - **Dashboard (Frontend)**: A React-based Single Page Application. It serves as the primary interface for users to initiate chats and administrators to manage members, API keys, and MCP servers.
 - **Gateway (Backend)**: An Express.js Node.js application that forms the core of Urumi. It acts as an intermediary between the dashboard/clients, the LLM provider, and the MCP upstream servers. It handles authentication, tool authorization, prompt construction, request routing, and auditing.
-- **MCP Upstreams**: Standalone servers implementing the Model Context Protocol over Server-Sent Events (SSE). Examples include `github-mcp`, `weather-mcp`, and `woo-mcp`. They expose specific functionality (e.g., retrieving weather, listing products) without maintaining their own user authorization logic.
-- **PostgreSQL Databases**:
-  - **Gateway DB**: Stores core platform data, including users, roles, encrypted server credentials, API keys, and audit logs.
-  - **WordPress DB**: Dedicated backend database for the included WooCommerce store.
+- **MCP Upstreams**: Standalone microservices implementing the Model Context Protocol. By default, the included upstream microservices communicate via Streamable HTTP (with SSE fallback supported by the Gateway). Examples include `github-mcp`, `weather-mcp`, and `woo-mcp`. They expose specific functionality (e.g., retrieving weather, listing products) without maintaining their own user authorization logic.
+- **Databases**:
+  - **Gateway DB (PostgreSQL)**: Stores core platform data, including users, roles, encrypted server credentials, API keys, and audit logs.
+  - **WordPress DB (MariaDB)**: Dedicated backend relational database for WordPress and the included WooCommerce store.
 - **Kubernetes / Helm Deployment**: The entire stack is orchestrated via Helm. Services run as isolated Pods within the Kubernetes cluster. Internal routing is handled by Kubernetes Services, and external access is managed through a central Ingress.
 
 ### Request Flow
@@ -20,14 +20,14 @@ Urumi is an agentic platform designed to securely connect Large Language Models 
 2. **Gateway Processing**: The Gateway validates the request, verifying the user's identity via JWT authentication and role-based permissions.
 3. **LLM Invocation**: The Gateway forwards the prompt, along with the schema of tools the user is *authorized* to use, to the LLM (e.g., Groq/Gemini).
 4. **Tool Selection**: The LLM responds with a tool call.
-5. **Upstream Execution**: The Gateway validates the tool call against the authorized tools list. If authorized, the Gateway invokes the corresponding tool on the appropriate MCP upstream via HTTP/SSE.
+5. **Upstream Execution**: The Gateway validates the tool call against the authorized tools list. If authorized, the Gateway invokes the corresponding tool on the appropriate MCP upstream via Streamable HTTP (or SSE where configured).
 6. **LLM Completion**: The Gateway sends the tool's result back to the LLM to generate the final natural language response.
 7. **Client Response**: The final response is streamed or returned to the user, and the action is logged in the Gateway DB.
 
 ### Architectural Trade-offs and Limitations
 - **Stateless Upstreams**: MCP upstreams do not know *who* is invoking them. The Gateway handles all authorization. This simplifies upstream development but places a heavy security burden on the Gateway and limits the ability to apply fine-grained upstream-specific ACLs (e.g., "User A can only access GitHub repository X").
 - **Gateway as a Single Point of Failure**: All LLM routing and tool executions pass through the Gateway. While this enables centralized auditing and security controls, it creates a potential bottleneck for high-throughput traffic.
-- **HTTP/SSE Transport for MCP**: The upstreams use SSE over HTTP. This requires connection lifecycle management and introduces potential latency overhead compared to persistent binary protocols (like WebSockets or gRPC), but it simplifies debugging and reverse-proxying.
+- **Streamable HTTP / SSE Transport for MCP**: Upstream MCP services primarily communicate over Streamable HTTP (with fallback to Server-Sent Events / SSE for endpoints explicitly ending in `/sse`). This requires connection lifecycle management and introduces standard HTTP overhead compared to persistent binary protocols (like WebSockets or gRPC), but it simplifies debugging, stateless scaling, and reverse-proxying.
 - **Internal Network Isolation vs Flexibility**: SSRF restrictions strictly limit MCP server URLs to internal namespaces (e.g., `urumi`). This enhances security by preventing the Gateway from interacting with arbitrary external APIs, but it limits administrators from adding external MCP services outside the allowed namespace list without reconfiguring the platform.
 
 ---
@@ -68,17 +68,17 @@ flowchart TD
     Client[Dashboard / Client API] -->|HTTP/REST| Gateway[Urumi Gateway]
 
     subgraph Core Platform
-        Gateway <--> GatewayDB[(Gateway DB: Users, Auth, Audits)]
+        Gateway <--> GatewayDB[(Gateway DB: PostgreSQL)]
     end
 
     Gateway <-->|LLM Prompt + Tools| LLM[LLM Provider (Groq/Gemini)]
 
     subgraph Internal Network
-        Gateway -->|HTTP/SSE| GithubMCP[github-mcp]
-        Gateway -->|HTTP/SSE| WeatherMCP[weather-mcp]
-        Gateway -->|HTTP/SSE| WooMCP[woo-mcp]
+        Gateway -->|Streamable HTTP / SSE| GithubMCP[github-mcp]
+        Gateway -->|Streamable HTTP / SSE| WeatherMCP[weather-mcp]
+        Gateway -->|Streamable HTTP / SSE| WooMCP[woo-mcp]
     end
 
     WooMCP <-->|REST API| WooCommerce[WordPress / WooCommerce]
-    WooCommerce <--> WooDB[(WordPress DB)]
+    WooCommerce <--> WooDB[(WordPress DB: MariaDB)]
 ```
