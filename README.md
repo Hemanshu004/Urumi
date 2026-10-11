@@ -25,6 +25,22 @@ flowchart TD
 - **MCP Upstreams (Node.js):** Isolated microservices (`woo-mcp`, `github-mcp`, `weather-mcp`) that bridge the Gateway to external systems.
 - **Database:** MariaDB (or PostgreSQL) for Gateway configuration (users, keys, servers, audit logs) and WordPress data.
 
+## Standout Features
+
+The platform implements the following verified capabilities:
+- **Multi-Upstream MCP Orchestration:** Aggregates and proxies multiple independent upstream MCP servers (`woocommerce`, `github`, `weather`) through a single Gateway endpoint supporting Streamable HTTP and SSE transports.
+- **Collision-Safe Tool Namespacing:** Automatically namespaces upstream tools with deterministic server prefixes (e.g., `woocommerce__list_products`, `weather__get_weather`), preventing naming collisions across upstreams.
+- **Administrative Upstream Management:** Supports runtime registration, configuration, and dynamic disablement/restoration of upstream servers and their exposed tools without restarting the Gateway.
+- **Role-Based Access Control & Per-Tool Authorization:** Enforces role permissions (`admin`, `member`) per tool, ensuring users and external clients can only view and execute authorized capabilities.
+- **Revocable, Hashed User API Keys:** Issues unique API keys for external MCP clients; stores salted bcrypt hashes and key prefixes, and immediately rejects subsequent requests upon revocation.
+- **Audit Logs with User Attribution:** Records persistent audit entries capturing user IDs, upstream servers, tool names, parameters, execution duration, and outcomes across chat and external sessions.
+- **Health Detection, Failure Isolation & Recovery:** Employs background polling with jittered exponential backoff to detect unreachable upstreams, isolating failures so remaining upstreams continue working, and automatically restoring tools upon recovery.
+- **Encrypted Upstream Credentials & SSRF Protections:** Encrypts upstream credentials at rest with AES-256-GCM and enforces strict IP/DNS validation against private/metadata network ranges.
+- **Kubernetes & Helm Deployment:** Packages all microservices, ingress routes, network policies, and persistent storage into a configurable Helm chart.
+- **Context-Aware Chat Agent:** Integrates an LLM assistant that executes MCP tools on behalf of authenticated users and renders structured data natively in the dashboard.
+
+For system design, communication protocols, and architectural trade-offs, see [ARCHITECTURE.md](ARCHITECTURE.md). For the threat model, security controls, and known limitations, see [docs/SECURITY.md](docs/SECURITY.md).
+
 ## How the MCP Gateway Works
 The Gateway operates in a dual role:
 1. **As an MCP Client:** It uses `@modelcontextprotocol/client` to connect to upstream MCP servers using HTTP transports. It syncs tools from upstreams and namespaces them (e.g., `github__list_issues`).
@@ -162,12 +178,23 @@ wordpressDb:
 wordpress:
   storageClass: "local-path"
 
-# Optional: Scale replicas if your node has sufficient resources
+# Gateway and upstream replica configuration:
+# Note: Keep gateway.replicas at 1 while legacy SSE session state is stored in memory.
 gateway:
+  replicas: 1
+dashboard:
   replicas: 2
-wooMcp:
+githubMcp:
+  replicas: 2
+weatherMcp:
   replicas: 2
 ```
+
+#### Gateway Replica & Session Guidance
+- **In-Memory SSE Sessions:** The Gateway's legacy Server-Sent Events (SSE) session management stores active session transports in local process memory (`sseTransports` in `apps/gateway/src/mcp/server.ts`). Multiple Gateway replicas do not share this in-memory session state. If multiple Gateway replicas are run, POST messages (`/mcp/message?sessionId=...`) routed to a different replica than the one hosting the SSE stream will fail with `404 Session not found`.
+- **Upstream Connection State:** Each Gateway pod independently manages its own upstream MCP client connections and health-polling loops.
+- **Recommended Configuration:** Keep `gateway.replicas: 1` (the default in `infra/helm/urumi/values.yaml`) while legacy SSE session state remains in memory.
+- **Scaling Gateway Replicas:** Increasing Gateway replicas requires validating session handling (e.g., configuring sticky sessions at the Ingress controller or migrating to a shared session store like Redis) and validating multi-instance upstream connection behavior. Stateless services (`dashboard`, `githubMcp`, `weatherMcp`) can be scaled horizontally without session-affinity constraints.
 
 *(Note on TLS and Ingress Limitations: The Urumi Helm chart currently generates HTTP-only Ingress resources. It does not natively support automated TLS blocks or cert-manager integration in its templates. TLS termination must be handled globally by your Ingress controller default certificate or a load balancer sitting in front of the cluster.)*
 
