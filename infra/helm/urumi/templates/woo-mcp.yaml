@@ -6,7 +6,7 @@ metadata:
     {{- include "urumi.labels" . | nindent 4 }}
     app.kubernetes.io/component: woo-mcp
 spec:
-  replicas: 1
+  replicas: {{ .Values.wooMcp.replicas }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "urumi.name" . }}
@@ -22,6 +22,9 @@ spec:
         - name: woo-mcp
           image: "{{ .Values.wooMcp.image.repository }}:{{ .Values.wooMcp.image.tag }}"
           imagePullPolicy: {{ .Values.wooMcp.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
           ports:
             - name: http
               containerPort: {{ .Values.wooMcp.service.port }}

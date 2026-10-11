@@ -81,6 +81,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  {{- if .Values.wordpress.storageClass }}
+  storageClassName: {{ .Values.wordpress.storageClass | quote }}
+  {{- end }}
   resources:
     requests:
       storage: {{ .Values.wordpress.storage }}

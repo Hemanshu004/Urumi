@@ -135,3 +135,4 @@ generate-jwt.js
 hash.js
 update-passwords.ts
 hash_test.js
+secrets-local.yaml

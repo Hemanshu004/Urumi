@@ -22,6 +22,8 @@ const createServerSchema = z.object({
 });
 
 serversRouter.get("/", async (req, res) => {
+  const isAdmin = (req as any).user?.role === "admin";
+
   const servers = await db.select({
     id: upstream_servers.id,
     name: upstream_servers.name,
@@ -36,7 +38,21 @@ serversRouter.get("/", async (req, res) => {
   
   const allTools = registry.getAllTools();
   const enriched = servers.map(s => {
-    return { ...s, tools: allTools.filter(t => t.serverName === s.name) };
+    const serverTools = allTools.filter(t => t.serverName === s.name);
+    if (isAdmin) {
+      return { ...s, tools: serverTools };
+    } else {
+      return {
+        id: s.id,
+        name: s.name,
+        builtin: s.builtin,
+        enabled: s.enabled,
+        status: s.status,
+        status_message: s.status_message,
+        last_health_check: s.last_health_check,
+        tools: serverTools
+      };
+    }
   });
 
   res.json({ servers: enriched });

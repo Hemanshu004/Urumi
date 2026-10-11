@@ -128,59 +128,60 @@ If an upstream disconnects:
 - **NetworkPolicies:** Pods are tightly constrained; `woo-mcp` can only communicate with the `wordpress` pod.
 - **Warning:** Do NOT expose the upstream MCP microservices (ports 3001+) directly to external ingress.
 
-## Production-style Deployment
+## k3s/VPS Deployment Instructions
 
-Urumi is built for real-world Kubernetes (e.g., k3s, EKS, GKE). Use the provided Helm chart with a `values-prod.yaml` override.
+Deploying Urumi to a k3s cluster on a VPS provides a lightweight, production-ready environment.
 
-### Image Publishing and Pull Policies
-Build the images and push them to a private container registry. In your production `values.yaml`, override:
+### Prerequisites & Cluster Access
+- **VPS:** A Linux VPS with port 80 open.
+- **k3s Installed:** Install k3s (which includes a local-path storage provider and Traefik ingress by default).
+- **Helm Installed:** Ensure Helm is installed on your VPS.
+- **Kubeconfig:** Ensure you have cluster access (e.g., `export KUBECONFIG=/etc/rancher/k3s/k3s.yaml`).
+
+### DNS Configuration
+Point your domains (e.g., `shop.example.com`, `api.example.com`, `dashboard.example.com`) to your VPS's public IP address.
+
+### Custom Values Configuration (`values-prod.yaml`)
+Create a `values-prod.yaml` file to configure your hostnames, storage, and replicas. **Note:** Replace the example hostnames with your actual production domains.
 ```yaml
-gateway:
-  image:
-    repository: myregistry.com/urumi/gateway
-    tag: "1.0.0"
-    pullPolicy: Always
-```
-
-### Ingress and DNS/TLS Configuration
-To expose services via a real domain with TLS (cert-manager):
-```yaml
+# Required: Configure your actual domains
 ingress:
   enabled: true
-  className: "nginx"
+  className: "traefik" # k3s default, or "nginx" if you installed ingress-nginx
   hosts:
-    - host: dashboard.urumi.example.com
-      paths: [{ path: "/", pathType: Prefix }]
-  tls:
-    - secretName: urumi-tls
-      hosts: ["dashboard.urumi.example.com"]
+    shop: shop.example.com
+    api: api.example.com
+    dashboard: dashboard.example.com
+
+# Optional: Explicitly specify the k3s storage class, or leave empty ("") to use the cluster default
+gatewayDb:
+  persistence:
+    storageClass: "local-path"
+wordpressDb:
+  storageClass: "local-path"
+wordpress:
+  storageClass: "local-path"
+
+# Optional: Scale replicas if your node has sufficient resources
+gateway:
+  replicas: 2
+wooMcp:
+  replicas: 2
 ```
 
-### Storage Requirements
-Ensure your cluster provides a default StorageClass for persistent volumes:
-- `gateway-db` requires `1Gi` (configurable).
-- `wordpress-db` requires `1Gi`.
-- `wordpress` requires `1Gi`.
+*(Note on TLS and Ingress Limitations: The Urumi Helm chart currently generates HTTP-only Ingress resources. It does not natively support automated TLS blocks or cert-manager integration in its templates. TLS termination must be handled globally by your Ingress controller default certificate or a load balancer sitting in front of the cluster.)*
 
-### Secrets Management
-Never commit production secrets in plain text. Use external secret operators (like External Secrets Operator) or inject them directly via Helm CLI at CI/CD deploy time:
+### Installation Command
+Install or upgrade the chart using Helm. You must explicitly provide strong secrets.
 ```bash
-helm upgrade --install urumi ./infra/helm/urumi \
+helm upgrade --install urumi ./infra/helm/urumi -n urumi --create-namespace \
+  -f values-prod.yaml \
   --set secrets.adminPassword="STRONG_ADMIN_PASSWORD" \
+  --set secrets.memberPassword="STRONG_MEMBER_PASSWORD" \
   --set secrets.jwtSecret="STRONG_32_CHAR_JWT_SECRET" \
   --set secrets.llmApiKey="YOUR_LLM_PROVIDER_KEY"
 ```
 
-### Resource and Networking Requirements
-The default `values.yaml` includes basic resource limits. In production, appropriately tune memory and CPU requests/limits for the `gateway` and LLM orchestration load.
-```yaml
-gateway:
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-```
-The chart automatically deploys strict `NetworkPolicy` rules. Ensure your CNI (e.g., Calico or Cilium) enforces NetworkPolicies.
+### Basic Verification
+1. **Check Pods:** Run `kubectl get pods -n urumi` to ensure all workloads are `Running` and PVCs are `Bound`.
+2. **Access the Dashboard:** Visit `http://dashboard.example.com` (using your configured host) and log in with your admin credentials.

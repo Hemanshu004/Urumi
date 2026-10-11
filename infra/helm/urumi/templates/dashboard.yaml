@@ -19,6 +19,9 @@ spec:
         - name: dashboard
           image: "{{ .Values.dashboard.image.repository }}:{{ .Values.dashboard.image.tag }}"
           imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
           ports:
             - containerPort: 8080
           resources:

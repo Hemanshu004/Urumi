@@ -83,6 +83,9 @@ spec:
         name: data
       spec:
         accessModes: [ "ReadWriteOnce" ]
+        {{- if .Values.wordpressDb.storageClass }}
+        storageClassName: {{ .Values.wordpressDb.storageClass | quote }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.wordpressDb.storage }}

@@ -7,15 +7,16 @@ export function ToolRenderer({ toolCall }: { toolCall: any }) {
   const { tool, status, durationMs, args, result } = toolCall;
   const isSuccess = status === "success";
 
+  const normalizedTool = (tool || "").replace(/\./g, "__");
   const hasCustomRenderer = isSuccess && result && (
-    tool === "woocommerce__list_orders" ||
-    tool === "woocommerce__list_products" ||
-    tool === "github__list_issues" ||
-    tool === "github__search_repositories" ||
-    tool === "weather__get_weather"
+    normalizedTool === "woocommerce__list_orders" ||
+    normalizedTool === "woocommerce__list_products" ||
+    normalizedTool === "github__list_issues" ||
+    normalizedTool === "github__search_repositories" ||
+    normalizedTool === "weather__get_weather"
   );
 
-  const parts = tool.split("__");
+  const parts = normalizedTool.split("__");
   const displayName = parts.length === 2 
     ? `${parts[0].charAt(0).toUpperCase() + parts[0].slice(1)} · ${parts[1]}` 
     : tool;
@@ -32,7 +33,7 @@ export function ToolRenderer({ toolCall }: { toolCall: any }) {
       
       {hasCustomRenderer && (
         <div style={{ padding: "1rem" }}>
-          <CustomRenderer tool={tool} result={result} args={args} />
+          <CustomRenderer tool={normalizedTool} result={result} args={args} />
         </div>
       )}
 

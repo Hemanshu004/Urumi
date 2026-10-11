@@ -99,12 +99,10 @@ export function createMcpServerInstance() {
       } else {
         outcome = "error";
         errorMessage = err.message || "Unknown error calling upstream tool";
+        // Do not mark the server as permanently failed just because of a single timeout,
+        // but do so for other hard errors if necessary.
+        clientManager.markServerFailed(tool.serverName, errorMessage || "Unknown error").catch(err => logger.error("Failed to mark server failed", { error: err.message, server: tool.serverName }));
       }
-      
-      // Do not mark the server as permanently failed just because of a single timeout, 
-      // but do so for other hard errors if necessary. Actually, the previous implementation 
-      // did mark it failed on timeout. Let's preserve the existing behavior of markServerFailed.
-      clientManager.markServerFailed(tool.serverName, errorMessage || "Unknown error").catch(err => logger.error("Failed to mark server failed", { error: err.message, server: tool.serverName }));
       
       result = {
         content: [{ type: "text", text: `Error: ${errorMessage}` }],

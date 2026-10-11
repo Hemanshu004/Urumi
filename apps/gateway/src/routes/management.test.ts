@@ -56,6 +56,7 @@ let mockUser = { id: 1, role: "admin", email: "admin@test.com" };
 
 vi.mock("../middlewares/auth.js", () => ({
   requireAuth: (req: any, res: any, next: any) => {
+    if (!mockUser) return res.status(401).json({ error: "Unauthorized" });
     req.user = mockUser;
     next();
   },
@@ -145,6 +146,36 @@ describe("Management APIs", () => {
   });
 
   describe("Servers", () => {
+    it("Admin receives full server details", async () => {
+      runAs({ id: 1, role: "admin", email: "admin@test.com" });
+      (db as any).from.mockResolvedValueOnce([
+        { id: 1, name: "test", url: "http://test", timeout_ms: 30000, enabled: true, builtin: false, status: "connected" }
+      ]);
+      const res = await request(app).get("/servers");
+      expect(res.status).toBe(200);
+      expect(res.body.servers[0].url).toBe("http://test");
+      expect(res.body.servers[0].timeout_ms).toBe(30000);
+    });
+
+    it("Member receives sanitized server details without url or timeout_ms", async () => {
+      runAs({ id: 2, role: "member", email: "member@test.com" });
+      (db as any).from.mockResolvedValueOnce([
+        { id: 1, name: "test", url: "http://test", timeout_ms: 30000, enabled: true, builtin: false, status: "connected" }
+      ]);
+      const res = await request(app).get("/servers");
+      expect(res.status).toBe(200);
+      expect(res.body.servers[0].name).toBe("test");
+      expect(res.body.servers[0].status).toBe("connected");
+      expect(res.body.servers[0].url).toBeUndefined();
+      expect(res.body.servers[0].timeout_ms).toBeUndefined();
+    });
+
+    it("Unauthenticated request is rejected safely", async () => {
+      runAs(null); // Simulate no auth
+      const res = await request(app).get("/servers");
+      expect(res.status).toBe(401); // Or whatever auth middleware returns
+    });
+
     it("Admin can update server credential and URL", async () => {
       runAs({ id: 1, role: "admin", email: "admin@test.com" });
       (db as any).where

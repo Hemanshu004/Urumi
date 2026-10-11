@@ -11,6 +11,7 @@ wordpress:
   replicas: 1
   port: 80
   storage: 1Gi
+  storageClass: ""
   resources:
     requests:
       cpu: 100m
@@ -27,6 +28,7 @@ wordpressDb:
     pullPolicy: IfNotPresent
   port: 3306
   storage: 1Gi
+  storageClass: ""
   resources:
     requests:
       cpu: 100m
@@ -118,6 +120,7 @@ wooMcp:
     pullPolicy: Never
   service:
     port: 3001
+  replicas: 1
   resources:
     requests:
       cpu: "100m"
@@ -137,6 +140,7 @@ gatewayDb:
     database: urumi_gateway
   persistence:
     size: 2Gi
+    storageClass: ""
 
 gateway:
   image:
@@ -145,6 +149,7 @@ gateway:
     pullPolicy: Never
   service:
     port: 3000
+  replicas: 1
   resources:
     requests:
       cpu: 100m

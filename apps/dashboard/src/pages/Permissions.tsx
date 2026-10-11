@@ -103,7 +103,12 @@ export default function Permissions() {
           const displayToolsMap = new Map<string, Tool>();
           
           if (server.tools) {
-            server.tools.forEach(t => displayToolsMap.set(t.namespacedName, { ...t, isAvailable: true }));
+            server.tools.forEach(t => {
+              const toolName = t.namespacedName || (t as any).name;
+              if (toolName) {
+                displayToolsMap.set(toolName, { ...t, namespacedName: toolName, isAvailable: true });
+              }
+            });
           }
           
           // Find permissions belonging to this server

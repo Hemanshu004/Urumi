@@ -19,6 +19,9 @@ spec:
         - name: github-mcp
           image: "{{ .Values.githubMcp.image.repository }}:{{ .Values.githubMcp.image.tag }}"
           imagePullPolicy: {{ .Values.githubMcp.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
           ports:
             - containerPort: 3002
           env:

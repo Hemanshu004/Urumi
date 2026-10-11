@@ -67,6 +67,9 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
+        {{- if .Values.gatewayDb.persistence.storageClass }}
+        storageClassName: {{ .Values.gatewayDb.persistence.storageClass | quote }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.gatewayDb.persistence.size }}

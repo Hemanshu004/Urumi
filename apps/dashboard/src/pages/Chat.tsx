@@ -20,9 +20,9 @@ export default function Chat() {
     scrollToBottom();
   }, [messages, loading]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
+  const handleSend = async (textToSend: string) => {
+    const trimmed = textToSend.trim();
+    if (!trimmed || loading) return;
 
     let targetConvId = activeConversationId;
     if (!targetConvId) {
@@ -32,7 +32,7 @@ export default function Chat() {
     const userMessage = { 
       id: Math.random().toString(36).substring(2, 9),
       role: "user" as const, 
-      content: input,
+      content: trimmed,
       timestamp: new Date().toISOString()
     };
     
@@ -94,6 +94,11 @@ export default function Chat() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSend(input);
+  };
+
   return (
     <div className="agent-panel" style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column" }}>
       <div className="agent-header" style={{ padding: "1rem 1.5rem", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-panel)", flexShrink: 0 }}>
@@ -116,10 +121,10 @@ export default function Chat() {
                 <h2 style={{ fontSize: "1.25rem", color: "var(--text-main)", marginBottom: "0.5rem", fontWeight: 600 }}>Urumi Agent</h2>
                 <p style={{ marginBottom: "1.5rem" }}>Ask Urumi to interact with your connected MCP servers.</p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "center", maxWidth: "600px", margin: "0 auto" }}>
-                  <button onClick={() => setInput("Show me my previous orders")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>Show me my previous orders</button>
-                  <button onClick={() => setInput("List my WooCommerce products")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>List my WooCommerce products</button>
-                  <button onClick={() => setInput("What's the weather in Ahmedabad?")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>What's the weather in Ahmedabad?</button>
-                  <button onClick={() => setInput("Show open GitHub issues")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>Show open GitHub issues</button>
+                  <button type="button" disabled={loading} onClick={() => handleSend("Show me my previous orders")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>Show me my previous orders</button>
+                  <button type="button" disabled={loading} onClick={() => handleSend("List my WooCommerce products")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>List my WooCommerce products</button>
+                  <button type="button" disabled={loading} onClick={() => handleSend("What's the weather in Ahmedabad?")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>What's the weather in Ahmedabad?</button>
+                  <button type="button" disabled={loading} onClick={() => handleSend("Show open GitHub issues")} className="btn-secondary" style={{ fontSize: "0.875rem", padding: "0.5rem 1rem", borderRadius: "100px" }}>Show open GitHub issues</button>
                 </div>
               </div>
             )}

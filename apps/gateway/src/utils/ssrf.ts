@@ -6,14 +6,16 @@ import { promisify } from "util";
 const resolve4 = promisify(dns.resolve4);
 const resolve6 = promisify(dns.resolve6);
 
+const URUMI_NAMESPACE = process.env.URUMI_NAMESPACE || "urumi";
+
 // Allowlist of legitimate internal Kubernetes service names
 const ALLOWED_INTERNAL_HOSTS = new Set([
   "woo-mcp",
   "github-mcp",
   "weather-mcp",
-  "woo-mcp.urumi.svc.cluster.local",
-  "github-mcp.urumi.svc.cluster.local",
-  "weather-mcp.urumi.svc.cluster.local"
+  `woo-mcp.${URUMI_NAMESPACE}.svc.cluster.local`,
+  `github-mcp.${URUMI_NAMESPACE}.svc.cluster.local`,
+  `weather-mcp.${URUMI_NAMESPACE}.svc.cluster.local`
 ]);
 
 function isAllowedInternalHost(hostname: string): boolean {

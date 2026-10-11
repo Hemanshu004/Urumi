@@ -1,0 +1,10 @@
+dashboard:
+  image:
+    tag: isolated
+    pullPolicy: Never
+
+ingress:
+  hosts:
+    shop: shop.isolated.localhost
+    api: api.isolated.localhost
+    dashboard: dashboard.isolated.localhost

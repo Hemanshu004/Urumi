@@ -6,7 +6,7 @@ metadata:
     {{- include "urumi.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway
 spec:
-  replicas: 1
+  replicas: {{ .Values.gateway.replicas }}
   selector:
     matchLabels:
       {{- include "urumi.selectorLabels" . | nindent 6 }}
@@ -33,6 +33,9 @@ spec:
         - name: gateway
           image: "{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
           ports:
             - name: http
               containerPort: {{ .Values.gateway.service.port }}
@@ -40,6 +43,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            - name: URUMI_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
