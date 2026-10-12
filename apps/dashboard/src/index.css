@@ -164,6 +164,19 @@ tbody tr:hover {
   border: 1px solid var(--border);
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
 /* Layout */
 .layout-container {
   display: flex;

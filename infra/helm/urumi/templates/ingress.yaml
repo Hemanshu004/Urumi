@@ -42,5 +42,5 @@ spec:
               service:
                 name: urumi-dashboard
                 port:
-                  number: 80
+                  number: {{ .Values.dashboard.service.port }}
 {{- end }}

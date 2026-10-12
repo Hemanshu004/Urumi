@@ -9,6 +9,7 @@ import { validateUrlForSSRF } from "../utils/ssrf.js";
 import { encryptCredential } from "../utils/crypto.js";
 import { logger } from "../utils/logger.js";
 import { z } from "zod";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const serversRouter = Router();
 
@@ -21,7 +22,7 @@ const createServerSchema = z.object({
   credential: z.string().optional()
 });
 
-serversRouter.get("/", async (req, res) => {
+serversRouter.get("/", asyncHandler(async (req, res) => {
   const isAdmin = (req as any).user?.role === "admin";
 
   const servers = await db.select({
@@ -56,9 +57,9 @@ serversRouter.get("/", async (req, res) => {
   });
 
   res.json({ servers: enriched });
-});
+}));
 
-serversRouter.post("/", requireAdmin, async (req, res) => {
+serversRouter.post("/", requireAdmin, asyncHandler(async (req, res) => {
   try {
     const { name, url, timeout_ms, credential } = createServerSchema.parse(req.body);
     
@@ -94,9 +95,9 @@ serversRouter.post("/", requireAdmin, async (req, res) => {
     logger.error("Error creating server", { error: err.message });
     res.status(500).json({ error: err.message || "Failed to add server" });
   }
-});
+}));
 
-serversRouter.get("/:id", requireAdmin, async (req, res) => {
+serversRouter.get("/:id", requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
@@ -104,7 +105,7 @@ serversRouter.get("/:id", requireAdmin, async (req, res) => {
   if (!server) return res.status(404).json({ error: "Server not found" });
   
   res.json({ server });
-});
+}));
 
 const patchSchema = z.object({
   name: z.string().min(1).max(50).optional(),
@@ -114,7 +115,7 @@ const patchSchema = z.object({
   credential: z.string().optional()
 });
 
-serversRouter.patch("/:id", requireAdmin, async (req, res) => {
+serversRouter.patch("/:id", requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
@@ -163,9 +164,9 @@ serversRouter.patch("/:id", requireAdmin, async (req, res) => {
     }
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-serversRouter.delete("/:id", requireAdmin, async (req, res) => {
+serversRouter.delete("/:id", requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
@@ -176,4 +177,4 @@ serversRouter.delete("/:id", requireAdmin, async (req, res) => {
     await db.delete(upstream_servers).where(eq(upstream_servers.id, id));
   }
   res.json({ message: "Deleted successfully" });
-});
+}));

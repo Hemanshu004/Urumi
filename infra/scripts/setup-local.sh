@@ -46,7 +46,11 @@ kubectl --context "$KUBE_CONTEXT" wait --namespace ingress-nginx \
   --selector=app.kubernetes.io/component=controller \
   --timeout=90s
 
-# 3. Deploy the Helm chart
+# 3. Build and load custom Docker images
+echo "⏳ Building and loading custom Docker images into Kind cluster '${CLUSTER_NAME}'..."
+"${DIR}/scripts/build-local-images.sh" "${CLUSTER_NAME}"
+
+# 4. Deploy the Helm chart
 echo "⏳ Deploying Helm chart..."
 helm upgrade --install "$RELEASE_NAME" "${DIR}/helm/urumi" \
   --kube-context "$KUBE_CONTEXT" \
@@ -54,7 +58,7 @@ helm upgrade --install "$RELEASE_NAME" "${DIR}/helm/urumi" \
   -f "${DIR}/helm/urumi/values.yaml" \
   -f "$VALUES_FILE"
 
-# 4. Wait for MariaDB and WordPress to become ready
+# 5. Wait for database and application workloads to become ready
 echo "⏳ Waiting for MariaDB to be ready..."
 kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
   --for=condition=ready pod \
@@ -65,6 +69,42 @@ echo "⏳ Waiting for WordPress to be ready..."
 kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/component=app \
+  --timeout=300s
+
+echo "⏳ Waiting for Gateway DB to be ready..."
+kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=gateway-db \
+  --timeout=300s
+
+echo "⏳ Waiting for Gateway to be ready..."
+kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=gateway \
+  --timeout=300s
+
+echo "⏳ Waiting for Dashboard to be ready..."
+kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
+  --for=condition=ready pod \
+  --selector=app=urumi-dashboard \
+  --timeout=300s
+
+echo "⏳ Waiting for WooCommerce MCP to be ready..."
+kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=woo-mcp \
+  --timeout=300s
+
+echo "⏳ Waiting for GitHub MCP to be ready..."
+kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
+  --for=condition=ready pod \
+  --selector=app=github-mcp \
+  --timeout=300s
+
+echo "⏳ Waiting for Weather MCP to be ready..."
+kubectl --context "$KUBE_CONTEXT" wait --namespace "$NAMESPACE" \
+  --for=condition=ready pod \
+  --selector=app=weather-mcp \
   --timeout=300s
 
 echo ""
@@ -78,9 +118,13 @@ echo "  kubectl --context $KUBE_CONTEXT get ingress -n $NAMESPACE"
 echo ""
 if [[ "$CLUSTER_NAME" == "urumi-local" ]]; then
   echo "IMPORTANT: Ensure you have added the following to your /etc/hosts:"
-  echo "  127.0.0.1 shop.urumi.local"
+  echo "  127.0.0.1 shop.urumi.local api.urumi.local dashboard.urumi.local"
   echo ""
-  echo "Then access the storefront at: http://shop.urumi.local"
+  echo "Next steps:"
+  echo "  1. Initialize WooCommerce: ./infra/scripts/seed-woo.sh"
+  echo "  2. Access the dashboard:   http://dashboard.urumi.local"
+  echo "  3. Access the storefront:  http://shop.urumi.local"
+  echo "  4. Access the API gateway: http://api.urumi.local"
 else
   echo "Isolated mode deployed successfully. Host limits apply."
 fi

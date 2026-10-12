@@ -227,4 +227,80 @@ describe('ClientManager', () => {
       expect(() => lateReject(new Error('late error'))).not.toThrow();
     });
   });
+
+  describe('syncTools', () => {
+    it('discovers and registers tools for github with server prefix namespacing', async () => {
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            { name: 'list_issues', description: 'List GitHub issues', inputSchema: { type: 'object' } },
+            { name: 'search_repositories', description: 'Search GitHub repos', inputSchema: { type: 'object' } }
+          ]
+        })
+      };
+      // @ts-ignore
+      clientManager.clients.set('github', {
+        id: 2, name: 'github', url: 'http://github-mcp:3002/mcp', client: mockClient as any, status: 'connected', timeout_ms: 5000
+      });
+
+      await clientManager.syncTools('github');
+
+      expect(registry.clearServerTools).toHaveBeenCalledWith('github');
+      expect(registry.registerTool).toHaveBeenCalledWith({
+        namespacedName: 'github__list_issues',
+        serverName: 'github',
+        serverId: 2,
+        originalToolName: 'list_issues',
+        description: 'List GitHub issues',
+        inputSchema: { type: 'object' },
+        available: true
+      });
+      expect(registry.registerTool).toHaveBeenCalledWith({
+        namespacedName: 'github__search_repositories',
+        serverName: 'github',
+        serverId: 2,
+        originalToolName: 'search_repositories',
+        description: 'Search GitHub repos',
+        inputSchema: { type: 'object' },
+        available: true
+      });
+    });
+
+    it('discovers and registers tools for weather with server prefix namespacing', async () => {
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            { name: 'get_weather', description: 'Get weather forecast', inputSchema: { type: 'object' } },
+            { name: 'get_forecast', description: 'Get daily forecast', inputSchema: { type: 'object' } }
+          ]
+        })
+      };
+      // @ts-ignore
+      clientManager.clients.set('weather', {
+        id: 3, name: 'weather', url: 'http://weather-mcp:3003/mcp', client: mockClient as any, status: 'connected', timeout_ms: 5000
+      });
+
+      await clientManager.syncTools('weather');
+
+      expect(registry.clearServerTools).toHaveBeenCalledWith('weather');
+      expect(registry.registerTool).toHaveBeenCalledWith({
+        namespacedName: 'weather__get_weather',
+        serverName: 'weather',
+        serverId: 3,
+        originalToolName: 'get_weather',
+        description: 'Get weather forecast',
+        inputSchema: { type: 'object' },
+        available: true
+      });
+      expect(registry.registerTool).toHaveBeenCalledWith({
+        namespacedName: 'weather__get_forecast',
+        serverName: 'weather',
+        serverId: 3,
+        originalToolName: 'get_forecast',
+        description: 'Get daily forecast',
+        inputSchema: { type: 'object' },
+        available: true
+      });
+    });
+  });
 });

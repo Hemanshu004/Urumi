@@ -89,7 +89,7 @@ describe("Chat Router", () => {
     expect(res.body.message).toContain("You don't currently have permission to use the Woocommerce `list_products` tool");
     expect(res.body.message).not.toContain("{"); // No raw JSON
     expect(clientManager.callToolWithTimeout).not.toHaveBeenCalled();
-    expect(auditService.logAudit).toHaveBeenCalledWith(expect.objectContaining({ outcome: "denied" }));
+    expect(auditService.logAudit).toHaveBeenCalledWith(expect.objectContaining({ outcome: "denied", serverId: 1 }));
   });
 
   it("handles raw JSON hallucination in content fallback", async () => {
@@ -188,5 +188,39 @@ describe("Chat Router", () => {
     expect(systemMsg.content).toContain("You are the Urumi MCP Agent.");
     expect(systemMsg.content).toContain("The frontend UI will render structured data tables for your tool results automatically. Therefore, YOUR RESPONSES MUST BE VERY CONCISE.");
     expect(systemMsg.content).toContain("SPECIFIC INSTRUCTION FOR GITHUB: When GitHub list_issues executes successfully and returns zero issues, you MUST respond clearly: 'No open issues were found in owner/repository.'");
+  });
+
+  it("denied call involving unknown/unregistered tool logs audit with serverId: null instead of 0", async () => {
+    (isToolAllowed as any).mockResolvedValue(false);
+    (registry.getAllTools as any).mockReturnValue([]);
+    (registry.getTool as any).mockReturnValue(undefined);
+
+    mockChat.mockResolvedValueOnce({
+      choices: [{
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "call_unknown",
+            function: {
+              name: "nonexistent__custom_tool",
+              arguments: '{"param": "val"}'
+            }
+          }]
+        }
+      }]
+    });
+
+    const res = await request(app).post("/chat").send({ message: "Do nonexistent thing" });
+
+    expect(res.status).toBe(200);
+    expect(auditService.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: "denied",
+      serverId: null,
+      namespacedTool: "nonexistent__custom_tool"
+    }));
+    expect(auditService.logAudit).not.toHaveBeenCalledWith(expect.objectContaining({
+      serverId: 0
+    }));
   });
 });

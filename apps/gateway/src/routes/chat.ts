@@ -7,6 +7,7 @@ import { getLLMProvider, ChatMessage } from "../services/llm.js";
 import { stripNullArgs } from "../utils/toolArgs.js";
 import { isToolAllowed } from "../utils/rbac.js";
 import { logger } from "../utils/logger.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 function resolveToolName(rawToolName: string): string {
   if (registry.getTool(rawToolName)) return rawToolName;
@@ -38,7 +39,7 @@ export const chatRouter = Router();
 
 chatRouter.use(requireAuth);
 
-chatRouter.post("/", async (req: any, res) => {
+chatRouter.post("/", asyncHandler(async (req: any, res) => {
   const { message, conversationHistory } = req.body;
   const userId = req.user.id;
   
@@ -139,7 +140,7 @@ chatRouter.post("/", async (req: any, res) => {
            const registered = registry.getTool(deniedToolName!);
            await logAudit({
               userId,
-              serverId: registered ? registered.serverId : 0,
+              serverId: registered?.serverId ?? null,
               namespacedTool: deniedToolName!,
               toolName: registered ? registered.originalToolName : deniedToolName!,
               requestParams: deniedArgs,
@@ -155,7 +156,7 @@ chatRouter.post("/", async (req: any, res) => {
               userId,
               toolName: registered ? registered.originalToolName : deniedToolName!,
               namespacedTool: deniedToolName!,
-              serverId: registered ? registered.serverId : 0,
+              serverId: registered?.serverId ?? null,
               outcome: "denied"
            });
 
@@ -191,7 +192,7 @@ chatRouter.post("/", async (req: any, res) => {
           const toolStart = Date.now();
           let toolResult = "";
           let toolStatus = "success";
-          let serverId = registered!.serverId;
+          let serverId = registered?.serverId ?? null;
 
           const client = clientManager.getClient(registered!.serverName);
           
@@ -324,7 +325,7 @@ chatRouter.post("/", async (req: any, res) => {
                  
                  await logAudit({
                     userId,
-                    serverId: registered.serverId,
+                    serverId: registered.serverId ?? null,
                     namespacedTool: resolvedToolName,
                     toolName: registered.originalToolName,
                     requestParams: failedGen.arguments || {},
@@ -366,4 +367,4 @@ chatRouter.post("/", async (req: any, res) => {
     logger.error("Chat error", { error: err.message, userId });
     res.status(500).json({ error: "An unexpected error occurred during chat orchestration." });
   }
-});
+}));

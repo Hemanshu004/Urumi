@@ -1,34 +1,130 @@
-# Prod configurations overrides
+# ============================================================
+# Urumi Helm Chart - Production-Like Values Overrides
+# Suitable for k3s, VPS, or cloud Kubernetes environments
+# ============================================================
+
+# 1. Ingress Configuration
+# Configure your public DNS records (A/CNAME) pointing to your cluster/VPS IP.
 ingress:
+  enabled: true
+  className: "traefik" # Default for k3s; change to "nginx" if using ingress-nginx
   hosts:
-    shop: shop.example.com
-    api: api.example.com
-    dashboard: dashboard.example.com
+    shop: shop.example.com       # Replace with your actual WooCommerce storefront domain
+    api: api.example.com         # Replace with your actual Gateway API domain
+    dashboard: dashboard.example.com # Replace with your actual Dashboard domain
+
+# 2. Storage Configuration
+# k3s ships with the "local-path" storage class by default.
+# For cloud providers, specify your CSI storage class (e.g., "gp3", "standard").
+gatewayDb:
+  persistence:
+    size: 5Gi
+    storageClass: "local-path"
+
+wordpressDb:
+  storage: 5Gi
+  storageClass: "local-path"
 
 wordpress:
-  replicas: 2
+  storage: 5Gi
+  storageClass: "local-path"
+  # IMPORTANT: WordPress MUST remain at 1 replica when using ReadWriteOnce (RWO) storage.
+  # Multi-replica WordPress requires shared ReadWriteMany (RWX) storage (e.g. NFS) or S3 object storage.
+  replicas: 1
   image:
+    repository: wordpress
+    tag: "6.7-apache"
     pullPolicy: IfNotPresent
 
+# 3. Gateway Architecture & Replica Constraints
+# IMPORTANT: Keep gateway.replicas at 1. The Gateway maintains in-memory session
+# transports (sseTransports) for active Server-Sent Events (SSE) connections.
+# Scaling gateway replicas requires distributed session storage (e.g., Redis) or
+# sticky sessions at the Ingress layer.
+gateway:
+  replicas: 1
+  image:
+    repository: your-registry/urumi-gateway # Replace with your production container image
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "150m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# 4. Stateless Workloads (Horizontal Scaling Supported)
 dashboard:
   replicas: 2
   image:
+    repository: your-registry/urumi-dashboard # Replace with your production container image
+    tag: "0.1.0"
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
 
 githubMcp:
   replicas: 2
   image:
+    repository: your-registry/urumi-github-mcp # Replace with your production container image
+    tag: "0.1.0"
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
 
 weatherMcp:
   replicas: 2
   image:
+    repository: your-registry/urumi-weather-mcp # Replace with your production container image
+    tag: "0.1.0"
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
 
 wooMcp:
+  replicas: 1
   image:
+    repository: your-registry/urumi-woo-mcp # Replace with your production container image
+    tag: "0.1.0"
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
 
-gateway:
-  image:
-    pullPolicy: IfNotPresent
+# 5. Production Secrets Guidance
+# DO NOT commit real secrets to this file. Pass them at deploy time via:
+#   --set secrets.adminPassword="<SECURE_PASSWORD>"
+#   --set secrets.memberPassword="<SECURE_PASSWORD>"
+#   --set secrets.jwtSecret="<MIN_32_CHAR_SECRET>"
+#   --set secrets.llmApiKey="<PROVIDER_API_KEY>"
+#   --set secrets.githubToken="<GITHUB_PAT>"
+# Or create an untracked secrets-prod.yaml passed via -f secrets-prod.yaml.
+secrets:
+  wordpressDbRootPassword: ""
+  wordpressDbPassword: ""
+  adminPassword: ""
+  memberPassword: ""
+  jwtSecret: ""
+  llmApiKey: ""
+  githubToken: ""

@@ -9,6 +9,7 @@ import { serversRouter } from "./routes/servers.js";
 import { auditRouter } from "./routes/audit.js";
 import { chatRouter } from "./routes/chat.js";
 import { permissionsRouter } from "./routes/permissions.js";
+import { errorHandler } from "./middlewares/errorHandler.js";
 import { setupMcpServer } from "./mcp/server.js";
 import { seedDatabase } from "./db/seed.js";
 import { clientManager } from "./mcp/clientManager.js";
@@ -78,10 +79,7 @@ app.use("/api/audit", auditRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/permissions", permissionsRouter);
 
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error("Unhandled error", { error: err.message, path: req.path });
-  res.status(500).json({ error: "Internal Server Error" });
-});
+app.use(errorHandler);
 
 async function start() {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {

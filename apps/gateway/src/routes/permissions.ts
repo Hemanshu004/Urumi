@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm";
 import { registry } from "../mcp/registry.js";
 import { logAudit } from "../services/audit.js";
 import { logger } from "../utils/logger.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const permissionsRouter = Router();
 
@@ -14,7 +15,7 @@ permissionsRouter.use(requireAuth);
 permissionsRouter.use(requireAdmin);
 
 // Get permissions for a specific role (e.g. member)
-permissionsRouter.get("/:role", async (req, res) => {
+permissionsRouter.get("/:role", asyncHandler(async (req, res, next) => {
   try {
     const { role } = req.params;
     const perms = await db.select().from(role_permissions).where(eq(role_permissions.role, role));
@@ -29,12 +30,12 @@ permissionsRouter.get("/:role", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Error fetching permissions", { error: error.message, role: req.params.role });
-    res.status(500).json({ error: "Internal Server Error" });
+    next(error);
   }
-});
+}));
 
 // Grant permission
-permissionsRouter.post("/:role/grant", async (req: any, res) => {
+permissionsRouter.post("/:role/grant", asyncHandler(async (req: any, res, next) => {
   try {
     const { role } = req.params;
     const { namespacedTool } = req.body;
@@ -84,12 +85,12 @@ permissionsRouter.post("/:role/grant", async (req: any, res) => {
     res.json({ success: true, message: `Granted ${namespacedTool} to ${role}` });
   } catch (error: any) {
     logger.error("Error granting permission", { error: error.message, role: req.params.role, namespacedTool: req.body.namespacedTool });
-    res.status(500).json({ error: "Internal Server Error" });
+    next(error);
   }
-});
+}));
 
 // Revoke permission
-permissionsRouter.post("/:role/revoke", async (req: any, res) => {
+permissionsRouter.post("/:role/revoke", asyncHandler(async (req: any, res, next) => {
   try {
     const { role } = req.params;
     const { namespacedTool } = req.body;
@@ -114,7 +115,7 @@ permissionsRouter.post("/:role/revoke", async (req: any, res) => {
       
       await logAudit({
         userId: req.user?.id,
-        serverId: tool?.serverId || 0,
+        serverId: tool?.serverId ?? null,
         namespacedTool: namespacedTool,
         toolName: tool?.originalToolName || namespacedTool,
         requestParams: { action: "revoke", targetRole: role },
@@ -129,6 +130,6 @@ permissionsRouter.post("/:role/revoke", async (req: any, res) => {
     res.json({ success: true, message: `Revoked ${namespacedTool} from ${role}` });
   } catch (error: any) {
     logger.error("Error revoking permission", { error: error.message, role: req.params.role, namespacedTool: req.body.namespacedTool });
-    res.status(500).json({ error: "Internal Server Error" });
+    next(error);
   }
-});
+}));

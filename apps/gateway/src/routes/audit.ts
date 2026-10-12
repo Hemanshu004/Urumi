@@ -3,12 +3,13 @@ import { db } from "../db/index.js";
 import { audit_logs } from "../db/schema.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { desc, eq } from "drizzle-orm";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const auditRouter = Router();
 
 auditRouter.use(requireAuth);
 
-auditRouter.get("/", async (req, res) => {
+auditRouter.get("/", asyncHandler(async (req, res) => {
   const user = (req as any).user;
   let logs;
   
@@ -22,4 +23,4 @@ auditRouter.get("/", async (req, res) => {
   }
   
   res.json({ logs });
-});
+}));

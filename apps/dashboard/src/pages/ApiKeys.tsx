@@ -1,7 +1,54 @@
-import { useEffect, useState, useContext } from "react";
+import { useEffect, useState, useContext, useRef } from "react";
 import { api } from "../services/api";
-import { Copy, Trash2, CheckCircle2 } from "lucide-react";
+import { Copy, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
 import { AuthContext } from "../App";
+
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+
+  // 1. Try modern asynchronous Clipboard API (available in Secure Contexts: HTTPS or localhost)
+  if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) {
+      console.warn("navigator.clipboard.writeText failed, falling back to execCommand:", err);
+    }
+  }
+
+  // 2. Fallback for non-secure HTTP origins (e.g. http://dashboard.urumi.local) or restricted permissions
+  try {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.top = "-9999px";
+    textArea.style.left = "-9999px";
+    textArea.style.width = "2em";
+    textArea.style.height = "2em";
+    textArea.style.padding = "0";
+    textArea.style.border = "none";
+    textArea.style.outline = "none";
+    textArea.style.boxShadow = "none";
+    textArea.style.background = "transparent";
+    textArea.setAttribute("readonly", "");
+    textArea.setAttribute("aria-hidden", "true");
+    document.body.appendChild(textArea);
+
+    textArea.focus();
+    textArea.select();
+    textArea.setSelectionRange(0, text.length);
+
+    const successful = document.execCommand("copy");
+    document.body.removeChild(textArea);
+    if (successful) {
+      return true;
+    }
+  } catch (err) {
+    console.warn("document.execCommand copy fallback failed:", err);
+  }
+
+  return false;
+}
 
 export default function ApiKeys() {
   const { user: currentUser } = useContext(AuthContext);
@@ -10,6 +57,8 @@ export default function ApiKeys() {
   const [label, setLabel] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchKeys = async () => {
     try {
@@ -24,6 +73,11 @@ export default function ApiKeys() {
 
   useEffect(() => {
     fetchKeys();
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -31,6 +85,11 @@ export default function ApiKeys() {
     if (!label) return;
     try {
       const data = await api.createApiKey({ label });
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+      setCopied(false);
+      setCopyError(null);
       setNewKey(data.key);
       setLabel("");
       fetchKeys();
@@ -46,12 +105,33 @@ export default function ApiKeys() {
     }
   };
 
-  const handleCopy = () => {
-    if (newKey) {
-      navigator.clipboard.writeText(newKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    if (!newKey) return;
+
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current);
     }
+
+    const success = await copyToClipboard(newKey);
+    if (success) {
+      setCopied(true);
+      setCopyError(null);
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } else {
+      setCopied(false);
+      setCopyError("Automatic copy failed. Please select and copy the key manually above.");
+    }
+  };
+
+  const handleDismissNewKey = () => {
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current);
+    }
+    setCopied(false);
+    setCopyError(null);
+    setNewKey(null);
   };
 
   if (loading) return <div>Loading...</div>;
@@ -68,14 +148,57 @@ export default function ApiKeys() {
             <h3 style={{ color: "var(--success)", marginBottom: "1rem" }}>New API Key Created!</h3>
             <p style={{ marginBottom: "1rem" }}>Please copy this key now. You will not be able to see it again.</p>
             <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-              <div style={{ flex: 1, padding: "1rem", backgroundColor: "var(--bg-dark)", borderRadius: "6px", fontFamily: "monospace", fontSize: "1.125rem", wordBreak: "break-all" }}>
+              <div
+                style={{
+                  flex: 1,
+                  padding: "1rem",
+                  backgroundColor: "var(--bg-dark)",
+                  borderRadius: "6px",
+                  fontFamily: "monospace",
+                  fontSize: "1.125rem",
+                  wordBreak: "break-all",
+                  userSelect: "all",
+                  border: "1px solid var(--border)"
+                }}
+                data-testid="generated-key-display"
+              >
                 {newKey}
               </div>
-              <button className="btn-primary" onClick={handleCopy} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                {copied ? <><CheckCircle2 size={18}/> Copied</> : <><Copy size={18}/> Copy</>}
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleCopy}
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}
+                aria-label={copied ? "API key copied" : "Copy API key"}
+              >
+                {copied ? <><CheckCircle2 size={18}/> Copied!</> : <><Copy size={18}/> Copy</>}
               </button>
             </div>
-            <button style={{ marginTop: "1rem", background: "none", color: "var(--text-muted)", textDecoration: "underline" }} onClick={() => setNewKey(null)}>
+            {copyError && (
+              <div
+                role="alert"
+                style={{
+                  marginTop: "0.75rem",
+                  padding: "0.5rem 0.75rem",
+                  backgroundColor: "rgba(239, 68, 68, 0.1)",
+                  border: "1px solid var(--error)",
+                  borderRadius: "6px",
+                  color: "var(--error)",
+                  fontSize: "0.875rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem"
+                }}
+              >
+                <AlertCircle size={16} />
+                <span>{copyError}</span>
+              </div>
+            )}
+            <button
+              type="button"
+              style={{ marginTop: "1rem", background: "none", color: "var(--text-muted)", textDecoration: "underline", cursor: "pointer" }}
+              onClick={handleDismissNewKey}
+            >
               I have saved it securely
             </button>
           </div>

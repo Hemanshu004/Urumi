@@ -5,12 +5,13 @@ import { eq, and, isNull } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { requireAuth } from "../middlewares/auth.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const apiKeysRouter = Router();
 
 apiKeysRouter.use(requireAuth);
 
-apiKeysRouter.get("/", async (req, res) => {
+apiKeysRouter.get("/", asyncHandler(async (req, res) => {
   const user = (req as any).user;
   
   let condition = isNull(api_keys.revoked_at);
@@ -32,9 +33,9 @@ apiKeysRouter.get("/", async (req, res) => {
   .where(condition);
   
   res.json({ keys });
-});
+}));
 
-apiKeysRouter.post("/", async (req, res) => {
+apiKeysRouter.post("/", asyncHandler(async (req, res) => {
   const user = (req as any).user;
   const { label } = req.body;
   
@@ -54,11 +55,11 @@ apiKeysRouter.post("/", async (req, res) => {
     key: rawKey,
     message: "Store this key safely, it will not be shown again."
   });
-});
+}));
 
 import { logAudit } from "../services/audit.js";
 
-apiKeysRouter.delete("/:id", async (req, res) => {
+apiKeysRouter.delete("/:id", asyncHandler(async (req, res) => {
   const user = (req as any).user;
   const keyId = parseInt(req.params.id, 10);
   
@@ -89,4 +90,4 @@ apiKeysRouter.delete("/:id", async (req, res) => {
   });
     
   res.json({ message: "Key revoked" });
-});
+}));

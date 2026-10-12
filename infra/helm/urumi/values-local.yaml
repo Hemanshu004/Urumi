@@ -1,6 +1,18 @@
-# Local configurations overrides
-replicaCount: 1
-ingress: {}
+# ============================================================
+# Urumi Helm Chart - Local Development Overrides
+# Designed for Kind cluster deployment (cluster: urumi-local)
+# ============================================================
+
+# Local Ingress configuration (mapped to 127.0.0.1 via /etc/hosts)
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    shop: shop.urumi.local
+    api: api.urumi.local
+    dashboard: dashboard.urumi.local
+
+# Default credentials for local development and testing
 secrets:
   adminPassword: "admin123"
   memberPassword: "member123"

@@ -15,6 +15,7 @@ import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { isToolAllowed } from "../utils/rbac.js";
 import { logger } from "../utils/logger.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export function createMcpServerInstance() {
   const server = new Server({
@@ -135,7 +136,7 @@ export function setupMcpServer(app: express.Application) {
   const sseTransports = new Map<string, SSEServerTransport>();
   const statelessHandler = createMcpHandler(() => createMcpServerInstance() as any);
 
-  app.use("/mcp", express.raw({ type: "*/*" }), async (req, res) => {
+  app.use("/mcp", express.raw({ type: "*/*" }), asyncHandler(async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ error: "Missing or invalid Authorization header" });
@@ -232,5 +233,5 @@ export function setupMcpServer(app: express.Application) {
         res.status(500).json({ error: "Internal Server Error" });
       }
     }
-  });
+  }));
 }

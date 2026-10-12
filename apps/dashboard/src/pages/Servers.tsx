@@ -1,33 +1,119 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
-import { CheckCircle2, XCircle, Trash2, Power, Edit } from "lucide-react";
+import { CheckCircle2, XCircle, Trash2, Power, Edit, Loader2 } from "lucide-react";
 
 export default function Servers() {
   const [servers, setServers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingServer, setEditingServer] = useState<any | null>(null);
+  const pollTimeouts = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   const fetchServers = async () => {
     try {
       const data = await api.getServers();
-      setServers(data.servers || []);
+      const serverList = data?.servers || [];
+      setServers(serverList);
       setError(null);
+      return serverList;
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Failed to load servers");
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
+  const pollServerStatus = (id: number, maxAttempts = 10, intervalMs = 300) => {
+    if (pollTimeouts.current.has(id)) {
+      clearTimeout(pollTimeouts.current.get(id)!);
+      pollTimeouts.current.delete(id);
+    }
+
+    let attempts = 0;
+    const check = async () => {
+      attempts++;
+      const currentList = await fetchServers();
+      const s = currentList?.find((item: any) => item.id === id);
+      if (s && s.enabled && (s.status === "connecting" || s.status === "disconnected")) {
+        if (attempts < maxAttempts) {
+          const timeoutId = setTimeout(check, intervalMs);
+          pollTimeouts.current.set(id, timeoutId);
+        } else {
+          pollTimeouts.current.delete(id);
+        }
+      } else {
+        pollTimeouts.current.delete(id);
+      }
+    };
+
+    const timeoutId = setTimeout(check, intervalMs);
+    pollTimeouts.current.set(id, timeoutId);
+  };
+
   useEffect(() => {
-    fetchServers();
+    fetchServers().then((list) => {
+      if (list) {
+        list.forEach((s: any) => {
+          if (s.enabled && (s.status === "disconnected" || s.status === "connecting")) {
+            pollServerStatus(s.id);
+          }
+        });
+      }
+    });
+
+    const timeouts = pollTimeouts.current;
+    return () => {
+      timeouts.forEach(t => clearTimeout(t));
+      timeouts.clear();
+    };
   }, []);
 
   const handleToggle = async (id: number, enabled: boolean) => {
-    await api.updateServer(id, { enabled });
-    fetchServers();
+    try {
+      const res = await api.updateServer(id, { enabled });
+
+      if (enabled) {
+        setServers(prev => prev.map(s => s.id === id ? {
+          ...s,
+          enabled: true,
+          status: res?.server?.status && res.server.status !== "disconnected" ? res.server.status : "connecting"
+        } : s));
+      } else {
+        setServers(prev => prev.map(s => s.id === id ? {
+          ...s,
+          enabled: false,
+          status: res?.server?.status || "disconnected"
+        } : s));
+      }
+
+      if (res?.server) {
+        setServers(prev => prev.map(s => s.id === id ? { ...s, ...res.server } : s));
+      }
+
+      const isSettled = res?.server && res.server.status !== "disconnected" && res.server.status !== "connecting";
+      if (!isSettled) {
+        const latestServers = await fetchServers();
+
+        if (enabled) {
+          const targetServer = latestServers?.find((s: any) => s.id === id);
+          if (!targetServer || targetServer.status === "connecting" || targetServer.status === "disconnected") {
+            pollServerStatus(id);
+          }
+        }
+      }
+
+      if (!enabled) {
+        if (pollTimeouts.current.has(id)) {
+          clearTimeout(pollTimeouts.current.get(id)!);
+          pollTimeouts.current.delete(id);
+        }
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to update server");
+      fetchServers();
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -84,6 +170,7 @@ export default function Servers() {
     if (status === "connected") return "Connected";
     if (status === "error") return "Unreachable";
     if (status === "disconnected") return "Disconnected";
+    if (status === "connecting") return "Connecting...";
     return status ? status.charAt(0).toUpperCase() + status.slice(1) : "Unknown";
   };
 
@@ -123,6 +210,8 @@ export default function Servers() {
                     {server.enabled ? (
                       server.status === "connected" ? (
                         <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status_message}><CheckCircle2 size={14}/> Connected</span>
+                      ) : server.status === "connecting" || (server.enabled && server.status === "disconnected") ? (
+                        <span className="badge badge-warning" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status === "disconnected" ? "Connecting..." : (server.status_message || "Connecting...")}><Loader2 size={14} className="spin"/> Connecting...</span>
                       ) : (
                         <span className="badge badge-error" style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }} title={server.status_message}><XCircle size={14}/> {getStatusLabel(server.status)}</span>
                       )

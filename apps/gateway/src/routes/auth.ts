@@ -5,10 +5,11 @@ import { eq } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import * as jose from "jose";
 import { requireAuth, requireAdmin } from "../middlewares/auth.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const authRouter = Router();
 
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: "Missing email or password" });
 
@@ -27,22 +28,22 @@ authRouter.post("/login", async (req, res) => {
 
   res.cookie("token", token, { httpOnly: true, sameSite: "strict" });
   res.json({ message: "Logged in" });
-});
+}));
 
 authRouter.post("/logout", (req, res) => {
   res.clearCookie("token");
   res.json({ message: "Logged out" });
 });
 
-authRouter.get("/me", requireAuth, async (req, res) => {
+authRouter.get("/me", requireAuth, asyncHandler(async (req, res) => {
   const user = (req as any).user;
   res.json({ user });
-});
+}));
 
-authRouter.get("/users", requireAuth, requireAdmin, async (req, res) => {
+authRouter.get("/users", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const allUsers = await db.select({ id: users.id, name: users.name, email: users.email, role: users.role, created_at: users.created_at }).from(users);
   res.json({ users: allUsers });
-});
+}));
 
 import { z } from "zod";
 import { logAudit } from "../services/audit.js";
@@ -54,7 +55,7 @@ const createUserSchema = z.object({
   role: z.enum(["admin", "member"])
 });
 
-authRouter.post("/users", requireAuth, requireAdmin, async (req, res) => {
+authRouter.post("/users", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   try {
     const { email, name, password, role } = createUserSchema.parse(req.body);
     
@@ -88,13 +89,13 @@ authRouter.post("/users", requireAuth, requireAdmin, async (req, res) => {
     if (err instanceof z.ZodError) return res.status(400).json({ error: "Validation failed", details: err.errors });
     res.status(500).json({ error: "Failed to create user" });
   }
-});
+}));
 
 const updateUserSchema = z.object({
   role: z.enum(["admin", "member"]).optional()
 });
 
-authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
+authRouter.patch("/users/:id", requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
   
@@ -125,4 +126,4 @@ authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
     if (err instanceof z.ZodError) return res.status(400).json({ error: "Validation failed", details: err.errors });
     res.status(500).json({ error: "Failed to update user" });
   }
-});
+}));

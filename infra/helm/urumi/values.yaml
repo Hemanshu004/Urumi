@@ -51,19 +51,31 @@ ingress:
     api: api.urumi.local
     dashboard: dashboard.urumi.local
 
-# -- Secrets
-# If empty, passwords are auto-generated on first install.
-# On helm upgrade, existing secrets are preserved via lookup.
-
+# -- LLM Provider Configuration
 llm:
   provider: "openai"
   baseUrl: "https://api.groq.com/openai/v1"
   model: "openai/gpt-oss-120b"
 
+# -- Secrets
+# If left empty, database passwords, JWT secrets, and master keys are auto-generated.
+# On helm upgrade, existing secrets in the cluster are preserved via lookup.
+# For production, supply strong passwords and external API keys via --set or values files.
 secrets:
-
+  # MariaDB root password (auto-generated if empty)
   wordpressDbRootPassword: ""
+  # MariaDB application password (auto-generated if empty)
   wordpressDbPassword: ""
+  # Initial Gateway admin user password (seedDatabase only seeds admin if provided)
+  adminPassword: ""
+  # Initial Gateway member user password (seedDatabase only seeds member if provided)
+  memberPassword: ""
+  # JWT signing secret (minimum 32 characters; auto-generated if empty)
+  jwtSecret: ""
+  # API key for LLM provider (Groq, OpenAI, or Gemini)
+  llmApiKey: ""
+  # GitHub Personal Access Token for github-mcp tool calls
+  githubToken: ""
 
 dashboard:
   image:

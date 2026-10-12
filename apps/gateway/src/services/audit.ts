@@ -2,9 +2,9 @@ import { db } from "../db/index.js";
 import { audit_logs } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
 
-export async function logAudit(record: {
-  userId?: number;
-  serverId?: number;
+export interface AuditRecord {
+  userId?: number | null;
+  serverId?: number | null;
   namespacedTool: string;
   toolName: string;
   requestParams: any;
@@ -14,7 +14,9 @@ export async function logAudit(record: {
   source: string;
   startedAt: Date;
   completedAt: Date;
-}) {
+}
+
+export async function logAudit(record: AuditRecord): Promise<boolean> {
   // Redact sensitive fields
   let sanitizedParams = { ...record.requestParams };
   const sensitiveKeys = ["password", "token", "secret", "authorization", "api_key", "consumer_secret"];
@@ -36,8 +38,8 @@ export async function logAudit(record: {
 
   try {
     await db.insert(audit_logs).values({
-      user_id: record.userId,
-      server_id: record.serverId,
+      user_id: record.userId ?? null,
+      server_id: record.serverId ?? null,
       namespaced_tool: record.namespacedTool,
       tool_name: record.toolName,
       request_params: sanitizedParams,
@@ -48,7 +50,9 @@ export async function logAudit(record: {
       started_at: record.startedAt,
       completed_at: record.completedAt
     });
+    return true;
   } catch (err: any) {
     logger.error("Failed to write audit log", { error: err.message, record });
+    return false;
   }
 }

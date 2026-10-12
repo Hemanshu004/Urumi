@@ -73,17 +73,48 @@ describe("Permissions Router", () => {
     expect(res.status).toBe(404);
   });
 
-  it("should revoke permission and update cache", async () => {
-    // grant it first
-    (registry.getTool as any).mockReturnValue({ serverId: 1 });
-    await request(app).post("/permissions/member/grant").send({ namespacedTool: "test__tool_to_revoke" });
+  it("should revoke permission and update cache with registered serverId", async () => {
+    (registry.getTool as any).mockReturnValue({
+      serverId: 1,
+      namespacedName: "test__tool_to_revoke",
+      originalToolName: "tool_to_revoke"
+    });
     
-    // now revoke it
     const res = await request(app)
       .post("/permissions/member/revoke")
       .send({ namespacedTool: "test__tool_to_revoke" });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+    expect(auditService.logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: 1,
+        namespacedTool: "test__tool_to_revoke",
+        toolName: "tool_to_revoke",
+        outcome: "success"
+      })
+    );
+  });
+
+  it("should revoke permission for an unregistered/unresolved tool with serverId: null instead of 0", async () => {
+    (registry.getTool as any).mockReturnValue(undefined);
+
+    const res = await request(app)
+      .post("/permissions/member/revoke")
+      .send({ namespacedTool: "orphan__deleted_tool" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(auditService.logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: null,
+        namespacedTool: "orphan__deleted_tool",
+        toolName: "orphan__deleted_tool",
+        outcome: "success"
+      })
+    );
+    expect(auditService.logAudit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ serverId: 0 })
+    );
   });
 });

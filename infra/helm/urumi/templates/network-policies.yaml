@@ -88,8 +88,10 @@ spec:
   ingress:
     - from:
         - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: ["ingress-nginx", "kube-system", "traefik"]
       ports:
         - protocol: TCP
           port: 3000
@@ -116,8 +118,10 @@ spec:
   ingress:
     - from:
         - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: ["ingress-nginx", "kube-system", "traefik"]
       ports:
         - protocol: TCP
           port: 8080
@@ -137,8 +141,10 @@ spec:
   ingress:
     - from:
         - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: ["ingress-nginx", "kube-system", "traefik"]
       ports:
         - protocol: TCP
           port: 80
