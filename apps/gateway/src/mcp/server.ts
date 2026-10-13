@@ -1,7 +1,7 @@
 import express from "express";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import { ListToolsRequestSchema, CallToolRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { ListToolsRequestSchema, CallToolRequestSchema, McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { registry } from "./registry.js";
 import { clientManager } from "./clientManager.js";
 import { logAudit } from "../services/audit.js";
@@ -44,89 +44,133 @@ export function createMcpServerInstance() {
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const startedAt = new Date();
     const toolName = request.params.name;
     const args = request.params.arguments || {};
     
     const ctx = mcpContext.getStore();
-    const userId = ctx?.userId;
+    const userId = ctx?.userId ?? null;
     const role = ctx?.role || "member";
-    
-    const tool = registry.getTool(toolName);
-    if (!tool) {
-      throw new Error(`Tool not found: ${toolName}`);
-    }
+    const source = ctx?.source || "mcp-client";
 
-    if (!(await isToolAllowed(role, toolName))) {
-      await logAudit({
-        userId: userId,
-        serverId: tool.serverId,
-        namespacedTool: toolName,
-        toolName: tool.originalToolName,
-        requestParams: args,
-        outcome: "denied" as any,
-        errorMessage: "Access denied to tool",
-        durationMs: 0,
-        source: ctx?.source || "mcp-client",
-        startedAt: new Date(),
-        completedAt: new Date()
-      });
-      // The requirement says: be rejected with HTTP/JSON-RPC 403 if directly invoked
-      // Throwing an error with code -32000 (which is JSON-RPC standard for generic server error)
-      // or we can just throw Error which will map to internal error.
-      // We can create a specific MCP error, but throwing a standard Error is usually handled by the SDK.
-      // Wait, can we throw McpError with code 403? The standard MCP errors don't easily allow arbitrary HTTP codes inside JSON-RPC.
-      // But the requirement says "be rejected with HTTP/JSON-RPC 403 if directly invoked". 
-      // The MCP SDK maps throw to JSON-RPC errors.
-      // Let's throw a custom error.
-      throw new McpError(403, `Access denied: Tool ${toolName} is not allowed for role ${role}`);
-    }
-    
-    const managed = clientManager.getClient(tool.serverName);
-    if (!managed || managed.status !== "connected") {
-      throw new Error(`Upstream server ${tool.serverName} is not available`);
-    }
-
-    const startedAt = new Date();
-    let outcome: "success" | "error" | "timeout" = "success";
-    let errorMessage: string | undefined;
-    let result: any;
-
-    try {
-      result = await clientManager.callToolWithTimeout(tool.serverName, tool.originalToolName, args);
-    } catch (err: any) {
-      if (err.message === "Timeout") {
-        outcome = "timeout";
-        errorMessage = "Upstream server timed out";
-      } else {
-        outcome = "error";
-        errorMessage = err.message || "Unknown error calling upstream tool";
-        // Do not mark the server as permanently failed just because of a single timeout,
-        // but do so for other hard errors if necessary.
-        clientManager.markServerFailed(tool.serverName, errorMessage || "Unknown error").catch(err => logger.error("Failed to mark server failed", { error: err.message, server: tool.serverName }));
-      }
-      
-      result = {
-        content: [{ type: "text", text: `Error: ${errorMessage}` }],
-        isError: true
-      };
-    } finally {
+    let auditLogged = false;
+    const recordAudit = async (params: {
+      serverId?: number | null;
+      namespacedTool: string;
+      originalToolName?: string;
+      outcome: "success" | "error" | "timeout" | "denied";
+      errorMessage?: string;
+    }) => {
+      if (auditLogged) return;
+      auditLogged = true;
       const completedAt = new Date();
       await logAudit({
-        userId: userId,
-        serverId: tool.serverId,
-        namespacedTool: toolName,
-        toolName: tool.originalToolName,
+        userId,
+        serverId: params.serverId ?? null,
+        namespacedTool: params.namespacedTool,
+        toolName: params.originalToolName || params.namespacedTool,
         requestParams: args,
-        outcome,
-        errorMessage,
+        outcome: params.outcome,
+        errorMessage: params.errorMessage,
         durationMs: completedAt.getTime() - startedAt.getTime(),
-        source: ctx?.source || "mcp-client",
+        source,
         startedAt,
         completedAt
       });
-    }
+    };
 
-    return result;
+    try {
+      const tool = registry.getTool(toolName);
+      if (!tool) {
+        const prefix = toolName.includes("__") ? toolName.split("__")[0] : null;
+        const matchingServerTool = prefix ? registry.getAllTools().find(t => t.serverName === prefix) : undefined;
+        const serverId = matchingServerTool?.serverId ?? null;
+        const originalToolName = toolName.includes("__") ? toolName.split("__").slice(1).join("__") : toolName;
+
+        await recordAudit({
+          serverId,
+          namespacedTool: toolName,
+          originalToolName,
+          outcome: "error",
+          errorMessage: `Tool not found: ${toolName}`
+        });
+        throw new McpError(ErrorCode.MethodNotFound, `Tool not found: ${toolName}`);
+      }
+
+      if (!(await isToolAllowed(role, toolName))) {
+        await recordAudit({
+          serverId: tool.serverId,
+          namespacedTool: toolName,
+          originalToolName: tool.originalToolName,
+          outcome: "denied",
+          errorMessage: `Access denied: Tool ${toolName} is not allowed for role ${role}`
+        });
+        throw new McpError(403, `Access denied: Tool ${toolName} is not allowed for role ${role}`);
+      }
+
+      const managed = clientManager.getClient(tool.serverName);
+      if (!managed || managed.status !== "connected") {
+        const errMsg = `Upstream server ${tool.serverName} is not available`;
+        await recordAudit({
+          serverId: tool.serverId,
+          namespacedTool: toolName,
+          originalToolName: tool.originalToolName,
+          outcome: "error",
+          errorMessage: errMsg
+        });
+        throw new McpError(ErrorCode.InternalError, errMsg);
+      }
+
+      let outcome: "success" | "error" | "timeout" = "success";
+      let errorMessage: string | undefined;
+      let result: any;
+
+      try {
+        result = await clientManager.callToolWithTimeout(tool.serverName, tool.originalToolName, args);
+      } catch (err: any) {
+        if (err.message === "Timeout") {
+          outcome = "timeout";
+          errorMessage = "Upstream server timed out";
+        } else {
+          outcome = "error";
+          errorMessage = err.message || "Unknown error calling upstream tool";
+          // Do not mark the server as permanently failed just because of a single timeout,
+          // but do so for other hard errors if necessary.
+          clientManager.markServerFailed(tool.serverName, errorMessage || "Unknown error").catch(err => logger.error("Failed to mark server failed", { error: err.message, server: tool.serverName }));
+        }
+
+        result = {
+          content: [{ type: "text", text: `Error: ${errorMessage}` }],
+          isError: true
+        };
+      } finally {
+        await recordAudit({
+          serverId: tool.serverId,
+          namespacedTool: toolName,
+          originalToolName: tool.originalToolName,
+          outcome,
+          errorMessage
+        });
+      }
+
+      return result;
+    } catch (err: any) {
+      if (!auditLogged) {
+        const prefix = toolName.includes("__") ? toolName.split("__")[0] : null;
+        const matchingServerTool = prefix ? registry.getAllTools().find(t => t.serverName === prefix) : undefined;
+        const serverId = matchingServerTool?.serverId ?? null;
+        const originalToolName = toolName.includes("__") ? toolName.split("__").slice(1).join("__") : toolName;
+
+        await recordAudit({
+          serverId,
+          namespacedTool: toolName,
+          originalToolName,
+          outcome: "error",
+          errorMessage: err.message || "Unknown error during tool execution"
+        });
+      }
+      throw err;
+    }
   });
 
   return server;

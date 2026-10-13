@@ -8,6 +8,7 @@ import { stripNullArgs } from "../utils/toolArgs.js";
 import { isToolAllowed } from "../utils/rbac.js";
 import { logger } from "../utils/logger.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { boundConversationHistory, formatAndBoundToolResult } from "../utils/contextBudget.js";
 
 function resolveToolName(rawToolName: string): string {
   if (registry.getTool(rawToolName)) return rawToolName;
@@ -72,33 +73,8 @@ chatRouter.post("/", asyncHandler(async (req: any, res) => {
   }
 
   if (conversationHistory && Array.isArray(conversationHistory)) {
-    for (const msg of conversationHistory) {
-      if (msg.role === "user" || msg.role === "assistant" || msg.role === "system" || msg.role === "tool") {
-        const m: ChatMessage = { role: msg.role as any, content: msg.content || "" };
-        if (msg.tool_calls) m.tool_calls = msg.tool_calls;
-        if (msg.tool_call_id) m.tool_call_id = msg.tool_call_id;
-        messages.push(m);
-      }
-    }
-  }
-
-  // Repair invalid pending tool-call sequences
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0) {
-      const validToolCalls = [];
-      for (const tc of m.tool_calls) {
-        const hasToolResponse = messages.slice(i + 1).some(nextM => nextM.role === "tool" && nextM.tool_call_id === tc.id);
-        if (hasToolResponse) {
-           validToolCalls.push(tc);
-        }
-      }
-      if (validToolCalls.length > 0) {
-        m.tool_calls = validToolCalls;
-      } else {
-        delete m.tool_calls;
-      }
-    }
+    const boundedHistory = boundConversationHistory(conversationHistory);
+    messages.push(...boundedHistory);
   }
 
   if (messages.length === 0 || messages[messages.length - 1].content !== message) {
@@ -193,17 +169,21 @@ chatRouter.post("/", asyncHandler(async (req: any, res) => {
           let toolResult = "";
           let toolStatus = "success";
           let serverId = registered?.serverId ?? null;
+          let displayResult: any = "";
 
           const client = clientManager.getClient(registered!.serverName);
           
           if (!client || client.status !== "connected") {
             toolResult = `Error: Server ${registered!.serverName} is disconnected.`;
+            displayResult = toolResult;
             toolStatus = "error";
           } else {
             try {
               const res: any = await clientManager.callToolWithTimeout(registered!.serverName, registered!.originalToolName, args);
-              toolResult = JSON.stringify(res.content);
               toolStatus = res.isError ? "error" : "success";
+              const bounded = formatAndBoundToolResult(toolName, res.content ?? res);
+              toolResult = bounded.llmContent;
+              displayResult = toolStatus === "success" ? bounded.displayResult : toolResult;
             } catch (err: any) {
               if (err.message === "Timeout") {
                 toolResult = `Error: Upstream server timed out after configured timeout.`;
@@ -212,6 +192,7 @@ chatRouter.post("/", asyncHandler(async (req: any, res) => {
                 toolResult = `Error executing tool: ${err.message}`;
                 toolStatus = "error";
               }
+              displayResult = toolResult;
             }
           }
 
@@ -221,11 +202,7 @@ chatRouter.post("/", asyncHandler(async (req: any, res) => {
             status: toolStatus, 
             durationMs: toolDuration,
             args: args,
-            result: toolStatus === "success" ? (
-              (toolName === "woocommerce__list_orders" || toolName === "woocommerce__list_products" || toolName === "github__list_issues" || toolName === "github__search_repositories" || toolName === "weather__get_weather") 
-                ? (() => { try { return JSON.parse(toolResult); } catch { return toolResult; } })() 
-                : toolResult
-            ) : toolResult
+            result: displayResult
           });
 
           await logAudit({
@@ -290,7 +267,25 @@ chatRouter.post("/", asyncHandler(async (req: any, res) => {
     });
   } catch (err: any) {
     const errMsg = err.message || "";
-      if (errMsg.includes("400") || errMsg.includes("tool_use_failed")) {
+    const errStatus = err.status || 0;
+
+    const is413 =
+      errStatus === 413 ||
+      errMsg.includes("413") ||
+      errMsg.includes("Request too large") ||
+      errMsg.toLowerCase().includes("tpm limit") ||
+      errMsg.toLowerCase().includes("context_length_exceeded") ||
+      (errMsg.toLowerCase().includes("rate limit") && errMsg.toLowerCase().includes("tpm"));
+
+    if (is413) {
+      logger.warn("Chat request exceeded LLM context or token limit (413)", { error: errMsg, userId });
+      return res.status(413).json({
+        error: "The request exceeded the model token limit or context window. Tool outputs or conversation history have been pruned, but the prompt remained too large for the provider. Please shorten your request or clear chat history.",
+        code: "REQUEST_TOO_LARGE"
+      });
+    }
+
+    if (errMsg.includes("400") || errMsg.includes("tool_use_failed")) {
          try {
            const jsonStrMatch = errMsg.match(/\{"error":.*\}/);
            if (jsonStrMatch) {

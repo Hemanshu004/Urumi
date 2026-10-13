@@ -223,4 +223,180 @@ describe("Chat Router", () => {
       serverId: 0
     }));
   });
+
+  it("handles large github__search_repositories results by pruning fields, bounding payload for LLM, and returning structured data for UI", async () => {
+    (isToolAllowed as any).mockResolvedValue(true);
+    (registry.getAllTools as any).mockReturnValue([
+      { namespacedName: "github__search_repositories", serverName: "github" }
+    ]);
+    (registry.getTool as any).mockReturnValue({
+      serverId: 2,
+      namespacedName: "github__search_repositories",
+      originalToolName: "search_repositories",
+      serverName: "github"
+    });
+    (clientManager.getClient as any).mockReturnValue({ status: "connected" });
+
+    // Generate 10 massive GitHub repo objects (each containing 80+ fields)
+    const massiveRepos = Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      name: `repo-${i + 1}`,
+      full_name: `owner/repo-${i + 1}`,
+      html_url: `https://github.com/owner/repo-${i + 1}`,
+      description: `Description for repository ${i + 1}`,
+      stargazers_count: 500 * (i + 1),
+      language: "TypeScript",
+      forks_count: 50,
+      open_issues_count: 10,
+      blobs_url: "https://api.github.com/repos/owner/repo/blobs{/sha}",
+      git_commits_url: "https://api.github.com/repos/owner/repo/git/commits{/sha}",
+      comments_url: "https://api.github.com/repos/owner/repo/comments{/number}",
+      issue_comment_url: "https://api.github.com/repos/owner/repo/issues/comments{/number}",
+      contents_url: "https://api.github.com/repos/owner/repo/contents/{+path}",
+      compare_url: "https://api.github.com/repos/owner/repo/compare/{base}...{head}",
+      merges_url: "https://api.github.com/repos/owner/repo/merges",
+      archive_url: "https://api.github.com/repos/owner/repo/{archive_format}{/ref}",
+      downloads_url: "https://api.github.com/repos/owner/repo/downloads",
+      issues_url: "https://api.github.com/repos/owner/repo/issues{/number}",
+      pulls_url: "https://api.github.com/repos/owner/repo/pulls{/number}",
+      milestones_url: "https://api.github.com/repos/owner/repo/milestones{/number}",
+      notifications_url: "https://api.github.com/repos/owner/repo/notifications{?since,all,participating}",
+      labels_url: "https://api.github.com/repos/owner/repo/labels{/name}",
+      releases_url: "https://api.github.com/repos/owner/repo/releases{/id}",
+      deployments_url: "https://api.github.com/repos/owner/repo/deployments"
+    }));
+
+    (clientManager.callToolWithTimeout as any).mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify(massiveRepos) }]
+    });
+
+    mockChat.mockResolvedValueOnce({
+      choices: [{
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "call_search_1",
+            function: {
+              name: "github__search_repositories",
+              arguments: '{"query": "typescript"}'
+            }
+          }]
+        }
+      }]
+    }).mockResolvedValueOnce({
+      choices: [{
+        message: {
+          role: "assistant",
+          content: "Here are the top TypeScript repositories."
+        }
+      }]
+    });
+
+    const res = await request(app).post("/chat").send({ message: "Search for typescript repos" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBe("Here are the top TypeScript repositories.");
+    expect(res.body.toolCalls).toHaveLength(1);
+    expect(res.body.toolCalls[0].tool).toBe("github__search_repositories");
+    expect(res.body.toolCalls[0].status).toBe("success");
+
+    // Verify structured displayResult for Dashboard ToolRenderer table
+    const resultItems = res.body.toolCalls[0].result;
+    expect(Array.isArray(resultItems)).toBe(true);
+    expect(resultItems).toHaveLength(5);
+    expect(resultItems[0].full_name).toBe("owner/repo-1");
+    expect(resultItems[0].stargazers_count).toBe(500);
+    expect(resultItems[0].language).toBe("TypeScript");
+    expect(resultItems[0]).not.toHaveProperty("blobs_url");
+
+    // Verify content forwarded to the LLM was pruned and compact (under 2,000 chars instead of 25KB+)
+    const secondCallMessages = mockChat.mock.calls[1][0];
+    const toolMsg = secondCallMessages.find((m: any) => m.role === "tool");
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg.content.length).toBeLessThan(2000);
+    const parsedLLMPayload = JSON.parse(toolMsg.content);
+    expect(parsedLLMPayload._truncated).toBe(true);
+    expect(parsedLLMPayload._total_found).toBe(10);
+    expect(parsedLLMPayload.items).toHaveLength(5);
+  });
+
+  it("bounds conversation history while strictly preserving tool-call and tool-response sequences", async () => {
+    (isToolAllowed as any).mockResolvedValue(true);
+    (registry.getAllTools as any).mockReturnValue([]);
+
+    // Construct 10 turns of history with tool calls
+    const longHistory: any[] = [];
+    for (let i = 1; i <= 10; i++) {
+      longHistory.push({ role: "user", content: `Question ${i}` });
+      longHistory.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: `call_${i}`, function: { name: "get_weather", arguments: "{}" } }]
+      });
+      longHistory.push({ role: "tool", tool_call_id: `call_${i}`, content: `Weather data ${i}` });
+      longHistory.push({ role: "assistant", content: `Answer ${i}` });
+    }
+
+    mockChat.mockResolvedValueOnce({
+      choices: [{
+        message: {
+          role: "assistant",
+          content: "Final answer"
+        }
+      }]
+    });
+
+    const res = await request(app).post("/chat").send({
+      message: "Current question",
+      conversationHistory: longHistory
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+
+    const sentMessages = mockChat.mock.calls[0][0];
+    // History should be bounded (not all 40 messages from 10 turns)
+    expect(sentMessages.length).toBeLessThan(longHistory.length + 2);
+
+    // Verify tool-call parity for every assistant message in sent prompt
+    for (let i = 0; i < sentMessages.length; i++) {
+      const msg = sentMessages[i];
+      if (msg.role === "assistant" && msg.tool_calls) {
+        for (const tc of msg.tool_calls) {
+          const hasMatchingTool = sentMessages.slice(i + 1).some((m: any) => m.role === "tool" && m.tool_call_id === tc.id);
+          expect(hasMatchingTool).toBe(true);
+        }
+      }
+      if (msg.role === "tool") {
+        const precedingAssistant = sentMessages.slice(0, i).reverse().find((m: any) => m.role === "assistant" && m.tool_calls);
+        expect(precedingAssistant).toBeDefined();
+        const hasCallId = precedingAssistant.tool_calls.some((tc: any) => tc.id === msg.tool_call_id);
+        expect(hasCallId).toBe(true);
+      }
+    }
+  });
+
+  it("handles HTTP 413 / TPM Request Too Large gracefully with 413 status and actionable error", async () => {
+    (isToolAllowed as any).mockResolvedValue(true);
+    (registry.getAllTools as any).mockReturnValue([]);
+
+    const groq413Error: any = new Error(
+      "LLM Error: 413 Request too large for model openai/gpt-oss-120b. TPM limit: 8000, requested: approximately 11683 tokens."
+    );
+    groq413Error.status = 413;
+
+    mockChat.mockRejectedValue(groq413Error);
+
+    const res = await request(app).post("/chat").send({ message: "Search for repos" });
+
+    // Expect HTTP 413 with actionable error message instead of unexplained HTTP 500
+    expect(res.status).toBe(413);
+    expect(res.body.code).toBe("REQUEST_TOO_LARGE");
+    expect(res.body.error).toContain("exceeded the model token limit or context window");
+    expect(res.body.error).toContain("shorten your request or clear chat history");
+
+    // Do NOT retry the identical oversized request repeatedly
+    expect(mockChat).toHaveBeenCalledTimes(1);
+  });
 });

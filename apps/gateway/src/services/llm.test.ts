@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getLLMProvider, GeminiProvider, OpenAILikeProvider } from './llm.js';
 
 const mockGenerateContent = vi.fn();
@@ -166,5 +166,71 @@ describe('GeminiProvider', () => {
     await expect(provider.chat(messages as any, [])).rejects.toThrow('Gemini Provider Error: 400 Bad Request');
     
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('OpenAILikeProvider', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    process.env.LLM_API_KEY = 'test-openai-key';
+    delete process.env.LLM_MAX_TOKENS;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('includes max_tokens in payload to bound completion reservation against TPM limits', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { role: 'assistant', content: 'Hello from OpenAI' } }]
+      })
+    });
+    global.fetch = mockFetch as any;
+
+    const provider = new OpenAILikeProvider();
+    await provider.chat([{ role: 'user', content: 'Hi' }], []);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.max_tokens).toBe(1024);
+  });
+
+  it('respects custom LLM_MAX_TOKENS environment setting', async () => {
+    process.env.LLM_MAX_TOKENS = '2048';
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { role: 'assistant', content: 'Response' } }]
+      })
+    });
+    global.fetch = mockFetch as any;
+
+    const provider = new OpenAILikeProvider();
+    await provider.chat([{ role: 'user', content: 'Hi' }], []);
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.max_tokens).toBe(2048);
+  });
+
+  it('attaches HTTP status code (such as 413) to thrown error for graceful handling', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 413,
+      text: async () => 'Request too large for model openai/gpt-oss-120b. TPM limit: 8000, requested: 11683 tokens.'
+    });
+    global.fetch = mockFetch as any;
+
+    const provider = new OpenAILikeProvider();
+    try {
+      await provider.chat([{ role: 'user', content: 'Overflow request' }], []);
+      expect.fail('Expected provider.chat to throw');
+    } catch (err: any) {
+      expect(err.status).toBe(413);
+      expect(err.message).toContain('413');
+      expect(err.message).toContain('TPM limit: 8000');
+    }
   });
 });

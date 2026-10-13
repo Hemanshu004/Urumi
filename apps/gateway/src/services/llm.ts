@@ -29,9 +29,11 @@ export class OpenAILikeProvider implements LLMProvider {
       throw new Error("LLM configuration error: LLM_API_KEY is not set.");
     }
 
+    const maxTokens = parseInt(process.env.LLM_MAX_TOKENS || "1024", 10);
     const payload: any = {
       model: this.model,
       messages: messages,
+      max_tokens: maxTokens,
     };
 
     if (tools && tools.length > 0) {
@@ -58,7 +60,9 @@ export class OpenAILikeProvider implements LLMProvider {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`LLM Error: ${res.status} ${text}`);
+      const err: any = new Error(`LLM Error: ${res.status} ${text}`);
+      err.status = res.status;
+      throw err;
     }
 
     const jsonResponse = await res.json();

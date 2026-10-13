@@ -17,8 +17,24 @@ server.registerTool("search_repositories", {
   }).shape
 }, async (args) => {
   if (!process.env.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN not set");
-  const res = await octokit.rest.search.repos({ q: args.query, per_page: args.per_page || 5 });
-  return { content: [{ type: "text", text: JSON.stringify(res.data.items, null, 2) }] };
+  const perPage = Math.min(Math.max(1, args.per_page || 5), 10);
+  const res = await octokit.rest.search.repos({ q: args.query, per_page: perPage });
+  const pruned = (res.data.items || []).map((repo: any) => ({
+    id: repo.id,
+    name: repo.name,
+    full_name: repo.full_name,
+    description: repo.description ? (repo.description.length > 150 ? repo.description.slice(0, 147) + "..." : repo.description) : null,
+    html_url: repo.html_url,
+    stargazers_count: repo.stargazers_count,
+    language: repo.language,
+    forks_count: repo.forks_count,
+    open_issues_count: repo.open_issues_count,
+    owner: repo.owner ? {
+      login: repo.owner.login,
+      html_url: repo.owner.html_url
+    } : undefined
+  }));
+  return { content: [{ type: "text", text: JSON.stringify(pruned) }] };
 });
 
 server.registerTool("get_repo", {
@@ -30,7 +46,23 @@ server.registerTool("get_repo", {
 }, async (args) => {
   if (!process.env.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN not set");
   const res = await octokit.rest.repos.get({ owner: args.owner, repo: args.repo });
-  return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+  const d = res.data;
+  const pruned = {
+    id: d.id,
+    name: d.name,
+    full_name: d.full_name,
+    description: d.description,
+    html_url: d.html_url,
+    stargazers_count: d.stargazers_count,
+    forks_count: d.forks_count,
+    open_issues_count: d.open_issues_count,
+    language: d.language,
+    default_branch: d.default_branch,
+    created_at: d.created_at,
+    updated_at: d.updated_at,
+    owner: d.owner ? { login: d.owner.login, html_url: d.owner.html_url } : undefined
+  };
+  return { content: [{ type: "text", text: JSON.stringify(pruned) }] };
 });
 
 server.registerTool("list_issues", {
@@ -43,7 +75,17 @@ server.registerTool("list_issues", {
 }, async (args) => {
   if (!process.env.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN not set");
   const res = await octokit.rest.issues.listForRepo({ owner: args.owner, repo: args.repo, state: args.state || "open", per_page: 10 });
-  return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
+  const pruned = (res.data || []).map((issue: any) => ({
+    id: issue.id,
+    number: issue.number,
+    title: issue.title,
+    state: issue.state,
+    user: issue.user ? { login: issue.user.login } : undefined,
+    created_at: issue.created_at,
+    updated_at: issue.updated_at,
+    html_url: issue.html_url
+  }));
+  return { content: [{ type: "text", text: JSON.stringify(pruned) }] };
 });
 
 server.registerTool("create_issue", {
