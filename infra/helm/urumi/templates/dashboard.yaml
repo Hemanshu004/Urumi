@@ -15,6 +15,8 @@ spec:
         app: urumi-dashboard
         app.kubernetes.io/component: dashboard
     spec:
+      imagePullSecrets:
+        - name: ghcr-creds
       serviceAccountName: urumi-sa
       containers:
         - name: dashboard

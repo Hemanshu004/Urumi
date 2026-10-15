@@ -28,6 +28,8 @@ spec:
                 echo "waiting for gateway-db..."
                 sleep 2
               done
+      imagePullSecrets:
+        - name: ghcr-creds
       serviceAccountName: urumi-sa
       containers:
         - name: gateway

@@ -17,6 +17,8 @@ spec:
         app.kubernetes.io/name: {{ include "urumi.name" . }}
         app.kubernetes.io/component: woo-mcp
     spec:
+      imagePullSecrets:
+        - name: ghcr-creds
       serviceAccountName: urumi-sa
       containers:
         - name: woo-mcp
