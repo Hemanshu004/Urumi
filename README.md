@@ -4,6 +4,53 @@ Urumi is an enterprise-grade AI Model Context Protocol (MCP) Gateway built with 
 
 ---
 
+## Deliverables & Quick Navigation Index
+
+- **[Local Setup & Deployment Instructions](docs/SETUP.md#1-local-development-deployment-kind):** Reproducible automated Kind cluster deployment.
+- **[Production GCP k3s Deployment Instructions](docs/SETUP.md#2-production-deployment-gcp-k3s-vm-linux-vps):** Helm-managed live deployment on GCP VM with Traefik Ingress.
+- **[WooCommerce Order Placement & Verification](#4-woocommerce-workflow):** Catalog browsing, checkout, order receipt, and wp-admin verification ([walkthrough in docs/DEMO.md](docs/DEMO.md#step-1-storefront-navigation-test-order-completion)).
+- **[Chat Agent Tool Invocation](#4-chat-agent-integration):** Multi-turn natural language LLM interaction with automated MCP tool dispatch ([walkthrough in docs/DEMO.md](docs/DEMO.md#step-2-user-a-admin-product-creation-order-querying-via-chat)).
+- **[External MCP Client & MCP Inspector Connection](#5-external-mcp-client-integration):** Connecting via MCP Inspector Web UI, CLI proxy, and Claude Desktop ([walkthrough in docs/DEMO.md](docs/DEMO.md#step-3-user-b-member-external-mcp-client-connection-discovery)).
+- **[System Design & Tradeoffs](docs/ARCHITECTURE.md):** Architecture, routing, failover, replica constraints, and design tradeoffs.
+- **[Threat Model & Security Limitations](docs/SECURITY.md):** Attack vectors, SSRF validation, RBAC boundaries, and verified vs residual risks.
+- **[Implemented Standout Features Matrix](#standout-features-matrix):** Feature implementation status with source code references.
+
+---
+
+## Verified Deployment Environments
+
+The Urumi platform is deployed and verified across two active environments:
+
+| Service / Interface | Local Development (Kind Cluster) | Live Deployed Environment (GCP k3s VM) |
+| :--- | :--- | :--- |
+| **Administrative Dashboard** | [http://dashboard.urumi.local](http://dashboard.urumi.local) | [https://dashboard.34.14.187.15.nip.io](https://dashboard.34.14.187.15.nip.io) |
+| **API Gateway Backend** | [http://api.urumi.local](http://api.urumi.local) | [https://api.34.14.187.15.nip.io](https://api.34.14.187.15.nip.io) |
+| **WooCommerce Storefront** | [http://shop.urumi.local](http://shop.urumi.local) | [https://shop.34.14.187.15.nip.io](https://shop.34.14.187.15.nip.io) |
+| **External MCP Endpoint** | `http://api.urumi.local/mcp` | `https://api.34.14.187.15.nip.io/mcp` |
+| **Ingress Controller** | `ingress-nginx` (nodePort 80/443) | `traefik` (k3s built-in) |
+| **Storage Class** | Standard Kind HostPath | `local-path` (k3s default RWO storage) |
+| **Helm Values Configuration** | `values.yaml` + `values-local.yaml` | `values.yaml` + `values-prod.yaml` + `values-gcp.yaml` |
+
+---
+
+## Standout Features Matrix
+
+| Feature | Status | Primary Code Location | Implementation Summary |
+| :--- | :---: | :--- | :--- |
+| **Multi-Upstream MCP Aggregation** | **Implemented** | `apps/gateway/src/mcp/clientManager.ts`<br/>`apps/gateway/src/mcp/server.ts` | Dynamically connects to independent MCP upstreams over Streamable HTTP and SSE; aggregates tools into unified registry. |
+| **Collision-Safe Namespacing** | **Implemented** | `apps/gateway/src/mcp/clientManager.ts`<br/>`apps/gateway/src/mcp/registry.ts` | Deterministically prefixes tool names (`${serverName}__${toolName}`) to prevent namespace collisions across services. |
+| **Role-Based Tool Permissions (RBAC)** | **Implemented** | `apps/gateway/src/utils/rbac.ts`<br/>`apps/gateway/src/routes/chat.ts`<br/>`apps/gateway/src/mcp/server.ts` | 3-tier gating: filters chat LLM context, filters external `/mcp` discovery, intercepts execution dispatch with HTTP/JSON-RPC 403. |
+| **Hashed API Keys & Instant Revocation** | **Implemented** | `apps/gateway/src/routes/apiKeys.ts`<br/>`apps/gateway/src/mcp/server.ts` | Keys formatted as `urumi_<hex>`, indexed by prefix, stored as salted bcrypt hashes. Immediate 401 rejection upon revocation. |
+| **Persistent Audit Logging** | **Implemented** | `apps/gateway/src/services/audit.ts`<br/>`apps/gateway/src/routes/audit.ts` | PostgreSQL ledger recording `userId`, `serverId`, `toolName`, `requestParams`, `outcome`, `durationMs`, and precise timestamps. |
+| **Failure Isolation & Auto-Recovery** | **Implemented** | `apps/gateway/src/mcp/clientManager.ts` | Crashing or dead upstreams are isolated immediately; exponential backoff loop with jitter automatically restores tools upon recovery. |
+| **Context Budgeting & Pruning** | **Implemented** | `apps/gateway/src/utils/contextBudget.ts`<br/>`apps/gateway/src/routes/chat.ts` | Bounds tool results, prunes GitHub repository searches to essential fields, groups dialogue blocks, prevents provider 413/400 errors. |
+| **SSRF Prevention Engine** | **Implemented** | `apps/gateway/src/utils/ssrf.ts` | DNS resolution, IP range validation (loopback, metadata, link-local), private RFC1918 deny-by-default with service allowlist. |
+| **Encrypted Upstream Credentials** | **Implemented** | `apps/gateway/src/utils/crypto.ts`<br/>`apps/gateway/src/routes/servers.ts` | AES-256-GCM encryption at rest in PostgreSQL; decrypted in memory only at connection time; sanitized from member APIs. |
+| **Kubernetes Hardening & Least-Privilege** | **Implemented** | `infra/helm/urumi/templates/network-policies.yaml`<br/>`infra/helm/urumi/templates/rbac.yaml` | `default-deny-all` firewall; upstreams have no external ingress; `automountServiceAccountToken: false`; non-root containers (UID 1000/101). |
+| **Context-Aware Chat Agent** | **Implemented** | `apps/gateway/src/routes/chat.ts`<br/>`apps/dashboard/src/pages/Chat.tsx` | Multi-turn reasoning with automated MCP tool dispatch, parameter sanitization, and native frontend data table rendering. |
+
+---
+
 ## 1. Project Overview
 
 ### Problem Solved
@@ -40,26 +87,26 @@ Modern Large Language Models require access to private business tools and data s
 flowchart TD
     subgraph Clients
         Browser[User Web Browser]
-        ExtClient[External MCP Client<br/>e.g., Claude Desktop, Inspector]
+        ExtClient[External MCP Client<br/>e.g., Claude Desktop, MCP Inspector]
     end
 
     subgraph Ingress Layer
-        Ingress[Kubernetes Ingress Controller<br/>Nginx / Traefik]
+        Ingress[Kubernetes Ingress Controller<br/>Nginx local / Traefik GCP]
     end
 
-    subgraph Urumi Core Platform
+    subgraph Urumi Core Platform [Namespace: urumi]
         Dashboard[urumi-dashboard<br/>React SPA / Nginx<br/>Port 8080]
         Gateway[urumi-gateway<br/>Node.js Express MCP Gateway<br/>Port 3000]
         GatewayDB[(gateway-db<br/>PostgreSQL 15<br/>Port 5432)]
     end
 
-    subgraph Internal MCP Upstream Services
+    subgraph Internal MCP Upstream Services [Namespace: urumi - ClusterIP Only]
         WooMCP[woo-mcp<br/>WooCommerce MCP Service<br/>Port 3001]
         GithubMCP[github-mcp<br/>GitHub MCP Service<br/>Port 3002]
         WeatherMCP[weather-mcp<br/>Weather MCP Service<br/>Port 3003]
     end
 
-    subgraph External Systems & Backends
+    subgraph Backend Systems & External Services
         WooCommerce[WordPress / WooCommerce Store<br/>Port 80]
         WooDB[(wordpress-db<br/>MariaDB 11<br/>Port 3306)]
         GithubAPI[GitHub REST API]
@@ -67,9 +114,9 @@ flowchart TD
         LLMProvider[LLM Provider<br/>Groq / Gemini / OpenAI]
     end
 
-    Browser -->|shop.urumi.local| Ingress
-    Browser -->|dashboard.urumi.local| Ingress
-    Browser -->|api.urumi.local| Ingress
+    Browser -->|shop.urumi.local / shop.34.14.187.15.nip.io| Ingress
+    Browser -->|dashboard.urumi.local / dashboard.34.14.187.15.nip.io| Ingress
+    Browser -->|api.urumi.local / api.34.14.187.15.nip.io| Ingress
     ExtClient -->|/mcp Bearer Token| Ingress
 
     Ingress -->|/| Dashboard
@@ -266,7 +313,8 @@ curl -s http://api.urumi.local/
 ## 5. External MCP Client Integration
 
 ### Gateway MCP Endpoint
-- **URL:** `http://api.urumi.local/mcp`
+- **Local Kind URL:** `http://api.urumi.local/mcp`
+- **Live Deployed GCP URL:** `https://api.34.14.187.15.nip.io/mcp`
 - **Supported Transports:**
   - **Server-Sent Events (SSE):** Accessible via `GET /mcp` (or `/mcp/sse`). Establishes a persistent SSE stream and assigns a `sessionId`. Client sends subsequent JSON-RPC messages via `POST /mcp/message?sessionId=<sessionId>`.
   - **Streamable HTTP:** Accessible via `POST /mcp`. Directly accepts JSON-RPC 2.0 payloads and returns chunked or standard HTTP responses via `@modelcontextprotocol/server`.
@@ -276,19 +324,49 @@ curl -s http://api.urumi.local/
   ```
 
 ### API Key Generation
-1. In the Dashboard (`http://dashboard.urumi.local`), log in as `member@urumi.local` (password: `member123`).
+1. In the Dashboard ([local](http://dashboard.urumi.local) or [live GCP](https://dashboard.34.14.187.15.nip.io)), log in as `member@urumi.local` (or admin).
 2. Navigate to the **API Keys** tab and click **Create Key**.
 3. Label it `My External Client`.
-4. Copy the raw key (`urumi_<64-hex-chars>`).
+4. Copy the raw key (`urumi_<64-hex-chars>`). Plaintext is displayed only once.
 
-### Discovering Tools & Executing Calls
-Execute requests directly from your terminal using curl or an MCP client:
+### Connecting External MCP Clients with MCP Inspector
+
+The official [MCP Inspector](https://github.com/modelcontextprotocol/inspector) (`@modelcontextprotocol/inspector`) allows interactive discovery, schema inspection, and tool execution against the Gateway.
+
+#### Option A: Interactive Web UI (Recommended)
+1. Start the MCP Inspector UI locally:
+   ```bash
+   npx @modelcontextprotocol/inspector
+   ```
+2. Open the URL provided in the console (typically `http://localhost:5173` or `http://localhost:6274`).
+3. In the Inspector connection configuration:
+   - **Transport Type:** Select `Streamable HTTP` (or `SSE`).
+   - **URL:** Enter `https://api.34.14.187.15.nip.io/mcp` (or `http://api.urumi.local/mcp` for local Kind).
+   - **Custom Headers:** Add:
+     - Name: `Authorization`
+     - Value: `Bearer urumi_YOUR_COPIED_KEY_HERE`
+4. Click **Connect**.
+5. **Inspect & Execute:**
+   - Under **Tools**, click **List Tools** to see all tools permitted for your role (e.g. `woocommerce__list_products`, `weather__get_weather`).
+   - Select a tool, fill in parameters in the auto-generated form, and click **Run Tool**.
+   - Review JSON-RPC request/response payloads and latency metrics.
+
+#### Option B: MCP Inspector via CLI Proxy
+You can also launch MCP Inspector pre-connected via `mcp-remote`:
+```bash
+npx -y @modelcontextprotocol/inspector npx -y mcp-remote https://api.34.14.187.15.nip.io/mcp --header "Authorization: Bearer urumi_YOUR_COPIED_KEY_HERE"
+```
+
+### Direct Terminal Interaction via cURL
+Execute requests directly from your terminal using curl against either the live GCP endpoint or local Kind:
 
 ```bash
+# Set your API key and target Gateway endpoint
 API_KEY="urumi_YOUR_COPIED_KEY_HERE"
+GATEWAY_URL="https://api.34.14.187.15.nip.io/mcp" # or "http://api.urumi.local/mcp"
 
 # 1. Discover permitted tools (tools/list)
-curl -s -X POST http://api.urumi.local/mcp \
+curl -s -X POST "$GATEWAY_URL" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
@@ -298,8 +376,8 @@ curl -s -X POST http://api.urumi.local/mcp \
     "method": "tools/list"
   }' | jq .
 
-# 2. Execute a tool call (tools/call)
-curl -s -X POST http://api.urumi.local/mcp \
+# 2. Execute an authorized tool call (tools/call)
+curl -s -X POST "$GATEWAY_URL" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
@@ -319,10 +397,21 @@ curl -s -X POST http://api.urumi.local/mcp \
 
 ### Configuring Claude Desktop
 In Claude Desktop's configuration (`claude_desktop_config.json`):
+
 ```json
 {
   "mcpServers": {
-    "urumi": {
+    "urumi-gcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://api.34.14.187.15.nip.io/mcp",
+        "--header",
+        "Authorization: Bearer urumi_YOUR_COPIED_KEY_HERE"
+      ]
+    },
+    "urumi-local": {
       "command": "npx",
       "args": [
         "-y",
@@ -340,7 +429,7 @@ In Claude Desktop's configuration (`claude_desktop_config.json`):
 1. On the **API Keys** tab in the dashboard, click **Revoke** on the key.
 2. Attempt to issue any subsequent tool discovery or execution call:
    ```bash
-   curl -s -i -X POST http://api.urumi.local/mcp \
+   curl -s -i -X POST "$GATEWAY_URL" \
      -H "Authorization: Bearer $API_KEY" \
      -H "Accept: application/json, text/event-stream" \
      -H "Content-Type: application/json" \
@@ -380,66 +469,111 @@ In Claude Desktop's configuration (`claude_desktop_config.json`):
 
 ---
 
-## 7. Production Deployment (k3s / Linux VPS)
+## 7. Production Deployment (GCP k3s VM)
 
-> **Deployment Validation Notice:** The production Helm configuration (`values-prod.yaml`), Traefik ingress definitions, local-path volume claims, and deployment manifests have been strictly validated via `helm lint` and dry-run template rendering (`helm template`). However, a live deployment to a remote Linux VPS instance has not yet been executed; all live integration tests in this repository were conducted against the verified local Kind cluster.
+The Urumi platform is deployed and running live on a Google Cloud Platform (GCP) Compute Engine virtual machine running **k3s** (lightweight Kubernetes) with the **Traefik Ingress controller**. Workloads are managed as a unified Helm release named `urumi` inside the dedicated `urumi` Kubernetes namespace.
 
-To deploy Urumi on a remote Linux VPS running k3s:
+### Live Production Endpoints
 
-### 1. VPS Prerequisites
-- Linux VPS with public IP, ports 80 and 443 open.
-- k3s installed: `curl -sfL https://get.k3s.io | sh -` (`export KUBECONFIG=/etc/rancher/k3s/k3s.yaml`).
-- Helm v3 installed.
-- Public DNS A records configured: `shop.yourdomain.com`, `api.yourdomain.com`, `dashboard.yourdomain.com` pointing to the VPS IP.
+| Component | Live GCP URL / Endpoint | Protocol / Transport | Ingress Routing Target |
+| :--- | :--- | :--- | :--- |
+| **Administrative Dashboard** | [https://dashboard.34.14.187.15.nip.io](https://dashboard.34.14.187.15.nip.io) | HTTPS / Web Browser | Service `urumi-dashboard` (port 80 $\rightarrow$ 8080) |
+| **API Gateway Backend** | [https://api.34.14.187.15.nip.io](https://api.34.14.187.15.nip.io) | HTTPS / JSON REST | Service `gateway` (port 3000) |
+| **WooCommerce Storefront** | [https://shop.34.14.187.15.nip.io](https://shop.34.14.187.15.nip.io) | HTTPS / Web Browser | Service `urumi-wordpress` (port 80) |
+| **External MCP Endpoint** | `https://api.34.14.187.15.nip.io/mcp` | HTTPS / SSE & Streamable HTTP | Service `gateway` (`/mcp` route) |
 
-### 2. Configure `values-prod.yaml`
-Edit `infra/helm/urumi/values-prod.yaml`:
-```yaml
-ingress:
-  enabled: true
-  className: "traefik" # Default on k3s
-  hosts:
-    shop: shop.yourdomain.com
-    api: api.yourdomain.com
-    dashboard: dashboard.yourdomain.com
+### Cluster Architecture & Resource Configuration
 
-gatewayDb:
-  persistence:
-    storageClass: "local-path"
+1. **Ingress & Host Routing:**
+   - Managed by Traefik (`ingressClassName: traefik`), the default Ingress controller in k3s.
+   - Host rules dispatch incoming HTTPS traffic for `dashboard.34.14.187.15.nip.io`, `api.34.14.187.15.nip.io`, and `shop.34.14.187.15.nip.io`.
+2. **Internal-Only Microservices & Services:**
+   - Upstream MCP microservices (`woo-mcp` port 3001, `github-mcp` port 3002, `weather-mcp` port 3003) and databases (`gateway-db` port 5432, `urumi-wordpress-db` port 3306) are deployed strictly as **ClusterIP** services.
+   - None of these internal services expose Ingress routes; they are reachable only internally by authorized cluster workloads within the `urumi` namespace.
+3. **Persistent Volume Claims (PVCs):**
+   - Provisioned via k3s default `local-path` storage provisioner with `ReadWriteOnce` (RWO) access mode:
+     - `gateway-db`: StatefulSet volume claim template allocating 5 GiB for PostgreSQL data (`/var/lib/postgresql/data`).
+     - `urumi-wordpress-db`: StatefulSet volume claim template allocating 5 GiB for MariaDB data (`/var/lib/mysql`).
+     - `urumi-wordpress`: Dedicated PVC (`urumi-wordpress-data`) allocating 5 GiB for WordPress plugins, themes, and uploads (`/var/www/html/wp-content`).
+4. **Container Image Distribution:**
+   - Production images are pulled from GitHub Container Registry:
+     - `ghcr.io/hemanshu004/urumi-gateway:latest`
+     - `ghcr.io/hemanshu004/urumi-dashboard:latest`
+     - `ghcr.io/hemanshu004/urumi-woo-mcp:latest`
+     - `ghcr.io/hemanshu004/urumi-github-mcp:latest`
+     - `ghcr.io/hemanshu004/urumi-weather-mcp:latest`
+   - Image pull secrets (`ghcr-creds`) are configured in the `urumi` namespace and linked to pod deployment manifests.
 
-wordpressDb:
-  storageClass: "local-path"
+### Helm Values Hierarchy: Local vs. Production vs. GCP
 
-wordpress:
-  storageClass: "local-path"
-  replicas: 1 # Must remain 1 for ReadWriteOnce storage
+The deployment relies on layered Helm value files to maintain environment parity:
 
-gateway:
-  replicas: 1 # Must remain 1 due to in-memory SSE sessions
-  image:
-    repository: your-registry/urumi-gateway
-    tag: "0.1.0"
-    pullPolicy: IfNotPresent
+```text
+values.yaml (Base defaults & resource schemas)
+   ├── values-local.yaml (Local Kind overrides: nginx ingress, *.urumi.local, dev credentials)
+   └── values-prod.yaml  (Production baseline: traefik ingress, local-path storageClass, 5Gi PVCs)
+         └── values-gcp.yaml (GCP live overrides: *.34.14.187.15.nip.io domains, ghcr.io images, 1 replica)
 ```
 
-### 3. Deploy via Helm
+- **`values.yaml`:** Declares baseline container configurations, default probe parameters, non-sensitive database names, and template schemas.
+- **`values-prod.yaml`:** Configures production-grade settings (Traefik Ingress class, `local-path` storage classes, expanded 5 GiB storage capacities, and stateless horizontal scaling guidelines).
+- **`values-gcp.yaml`:** Applies environment-specific overrides for the live GCP VM:
+  - Overrides public ingress domains with the assigned VM IP nip.io hostnames (`*.34.14.187.15.nip.io`).
+  - Sets image repositories to `ghcr.io/hemanshu004/urumi-*` with `pullPolicy: Always`.
+  - Sets workload replica counts to 1 to match the single-VM footprint and comply with stateful SSE transport (`gateway: 1`) and RWO volume (`wordpress: 1`) constraints.
+
+### Secret Management Process
+
+- **Auto-Generated Secrets & Upgrade Preservation:**
+  - On initial deployment, Helm auto-generates cryptographically secure passwords for MariaDB root, MariaDB application user, PostgreSQL, JWT signing, and AES-256 master encryption keys via `randAlphaNum`.
+  - On subsequent `helm upgrade` operations, the chart template uses Helm's `lookup` function to inspect the existing `urumi-secrets` Secret in the cluster, preserving existing passwords and master keys across upgrades without data corruption.
+- **External Secret Provisioning:**
+  - Sensitive administrative passwords (`adminPassword`, `memberPassword`) and external API keys (`llmApiKey`, `githubToken`) are never committed to Git repository values files.
+  - They are supplied at deployment time via `--set` arguments or passed via an untracked local values file (e.g. `-f secrets-prod.yaml`).
+- **Registry Credentials:**
+  - Docker registry credentials for GHCR are stored in Kubernetes secret `ghcr-creds` in the `urumi` namespace, referenced by deployment `imagePullSecrets`.
+
+### Helm Lifecycle Procedures
+
+#### 1. Deploy or Upgrade Release
 ```bash
 helm upgrade --install urumi infra/helm/urumi \
-  -n urumi --create-namespace \
+  --namespace urumi --create-namespace \
   -f infra/helm/urumi/values.yaml \
   -f infra/helm/urumi/values-prod.yaml \
-  --set secrets.adminPassword="STRONG_ADMIN_PASSWORD" \
-  --set secrets.memberPassword="STRONG_MEMBER_PASSWORD" \
-  --set secrets.jwtSecret="STRONG_32_CHAR_JWT_SECRET" \
-  --set secrets.llmApiKey="YOUR_LLM_PROVIDER_KEY" \
-  --set secrets.githubToken="YOUR_GITHUB_PAT"
+  -f infra/helm/urumi/values-gcp.yaml \
+  --set secrets.adminPassword="<SECURE_ADMIN_PASSWORD>" \
+  --set secrets.memberPassword="<SECURE_MEMBER_PASSWORD>" \
+  --set secrets.jwtSecret="<MIN_32_CHAR_JWT_SECRET>" \
+  --set secrets.llmApiKey="<YOUR_LLM_API_KEY>" \
+  --set secrets.githubToken="<YOUR_GITHUB_PAT>"
 ```
+
+#### 2. Inspect Release History
+```bash
+helm history urumi -n urumi
+```
+Output displays revision numbers, deployment timestamps, chart version, release status, and descriptive messages.
+
+#### 3. Safe Rollback
+To rollback to a previous working release revision (e.g. revision 1):
+```bash
+helm rollback urumi 1 -n urumi
+```
+*Note on Rollbacks: Persistent Volume Claims (`local-path` PVCs) and auto-generated database secrets are preserved during rollbacks. Verify database schema compatibility before rolling back releases across schema migration boundaries.*
+
+### Network Policy Notice
+The Helm chart provides declarative Kubernetes `NetworkPolicy` manifests (`infra/helm/urumi/templates/network-policies.yaml`) configuring `default-deny-all` and explicit pod-to-pod ingress permissions. Active kernel-level enforcement of these policies requires a network policy controller / CNI plugin (such as Calico or kube-router). Perimeter security on the live cluster is actively enforced at Layer 7 by Traefik Ingress: only the Dashboard, API Gateway, and WordPress storefront expose ingress routes; internal MCP microservices and database ports are strictly ClusterIP services with no public perimeter exposure.
 
 ---
 
 ## 8. Documentation Index
 
-- [System Design & Tradeoffs](docs/ARCHITECTURE.md): Full component breakdown, tool routing algorithms, failure isolation, and architectural tradeoffs.
-- [Threat Model & Security Validations](docs/SECURITY.md): Threat vectors, SSRF protections, RBAC matrices, and verified vs unresolved security risks.
-- [End-to-End Demo Script](docs/DEMO.md): Step-by-step reproducible evaluation walkthrough matching assignment requirements.
-- [Setup & Deployment Guide](docs/SETUP.md): Detailed deployment instructions for Kind and production k3s VPS.
+- **Local Setup Instructions:** [docs/SETUP.md#1-local-development-deployment-kind](docs/SETUP.md#1-local-development-deployment-kind) — Complete Kind cluster automation, image builds, and health verification.
+- **Production GCP k3s Deployment:** [docs/SETUP.md#2-production-deployment-gcp-k3s-vm-linux-vps](docs/SETUP.md#2-production-deployment-gcp-k3s-vm-linux-vps) — Step-by-step instructions for GCP VM, k3s, Traefik, Helm values, and secrets.
+- **WooCommerce Order Placement & Verification:** [README.md #4. WooCommerce Workflow](#4-woocommerce-workflow) & [docs/DEMO.md #Step 1](docs/DEMO.md#step-1-storefront-navigation-test-order-completion) — Storefront shopping, Cash on Delivery checkout, and wp-admin order fulfillment audit.
+- **Chat Agent Interaction Guide:** [README.md #4. Chat Agent Integration](#4-chat-agent-integration) & [docs/DEMO.md #Step 2](docs/DEMO.md#step-2-user-a-admin-product-creation-order-querying-via-chat) — Natural language tool dispatch, catalog updates, and order queries.
+- **External MCP Client & MCP Inspector Integration:** [README.md #5. External MCP Client Integration](#5-external-mcp-client-integration) & [docs/DEMO.md #Step 3](docs/DEMO.md#step-3-user-b-member-external-mcp-client-connection-discovery) — Discovery and execution using MCP Inspector Web UI, CLI proxy, Claude Desktop, and cURL.
+- **System Design & Architectural Tradeoffs:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architectural responsibilities, namespacing algorithms, failure isolation, and replica constraints.
+- **Threat Model & Security Limitations:** [docs/SECURITY.md](docs/SECURITY.md) — Trust zones, SSRF validation, RBAC boundaries, and verified vs residual risk matrix.
+- **Standout Features & Source Code Locations:** [README.md #Standout Features Matrix](#standout-features-matrix) & [docs/DEMO.md #Standout Features Matrix](docs/DEMO.md#standout-features-matrix) — Comprehensive catalog of architectural and security differentiators.

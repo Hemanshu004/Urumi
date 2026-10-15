@@ -99,76 +99,117 @@ kubectl --context kind-urumi-local rollout restart deployment -n urumi
 
 ---
 
-## 2. Production-Style k3s / VPS Deployment
+## 2. Production Deployment (GCP k3s VM & Linux VPS)
 
-> **Deployment Validation Notice:** The production Helm configuration (`values-prod.yaml`), Traefik ingress definitions, local-path volume claims, and deployment manifests have been strictly validated via `helm lint` and dry-run template rendering (`helm template`). However, a live deployment to a remote Linux VPS instance has not yet been executed; all live integration tests in this repository were conducted against the verified local Kind cluster.
+The Urumi platform is deployed and running live on a Google Cloud Platform (GCP) Compute Engine virtual machine running **k3s** with **Traefik Ingress**. All components are deployed in the `urumi` namespace and managed through Helm.
 
-Deploying Urumi to a Linux VPS running k3s or a managed Kubernetes cluster uses the exact same Helm chart (`infra/helm/urumi`), configured via `values-prod.yaml`.
+### Live Production Endpoints
 
-### VPS Prerequisites
-- **Linux VPS:** Ubuntu 22.04+ or Debian 12 with public IP, ports 80 and 443 open.
-- **k3s Installed:**
+| Service / Interface | Public URL / Endpoint | Transport / Protocol | Backend Service |
+| :--- | :--- | :--- | :--- |
+| **Administrative Dashboard** | [https://dashboard.34.14.187.15.nip.io](https://dashboard.34.14.187.15.nip.io) | HTTPS / Browser | `urumi-dashboard` (port 80 $\rightarrow$ 8080) |
+| **API Gateway Backend** | [https://api.34.14.187.15.nip.io](https://api.34.14.187.15.nip.io) | HTTPS / REST | `gateway` (port 3000) |
+| **WooCommerce Storefront** | [https://shop.34.14.187.15.nip.io](https://shop.34.14.187.15.nip.io) | HTTPS / Browser | `urumi-wordpress` (port 80) |
+| **External MCP Endpoint** | `https://api.34.14.187.15.nip.io/mcp` | HTTPS / SSE & Streamable HTTP | `gateway` (`/mcp` route) |
+
+### Architecture & Resource Details
+
+1. **Traefik Ingress:**
+   - Ingress class: `traefik` (k3s built-in ingress controller).
+   - Routes `dashboard.34.14.187.15.nip.io`, `api.34.14.187.15.nip.io`, and `shop.34.14.187.15.nip.io`.
+2. **Internal MCP Services:**
+   - Upstream MCP microservices (`woo-mcp:3001`, `github-mcp:3002`, `weather-mcp:3003`) and databases (`gateway-db:5432`, `urumi-wordpress-db:3306`) are strictly internal **ClusterIP** services.
+   - They do not expose public Ingress paths. External access is routed solely through the Gateway.
+3. **Persistent Volume Claims (PVCs):**
+   - Managed by k3s default `local-path` storage provisioner (`ReadWriteOnce`):
+     - `gateway-db`: 5 GiB StatefulSet volume (`/var/lib/postgresql/data`).
+     - `urumi-wordpress-db`: 5 GiB StatefulSet volume (`/var/lib/mysql`).
+     - `urumi-wordpress`: 5 GiB PVC `urumi-wordpress-data` (`/var/www/html/wp-content`).
+4. **Container Image Distribution:**
+   - Production images are hosted on GitHub Container Registry:
+     - `ghcr.io/hemanshu004/urumi-gateway:latest`
+     - `ghcr.io/hemanshu004/urumi-dashboard:latest`
+     - `ghcr.io/hemanshu004/urumi-woo-mcp:latest`
+     - `ghcr.io/hemanshu004/urumi-github-mcp:latest`
+     - `ghcr.io/hemanshu004/urumi-weather-mcp:latest`
+   - Image pull authentication is handled via Kubernetes Secret `ghcr-creds` in namespace `urumi`.
+
+---
+
+### Step-by-Step Production Deployment Guide
+
+#### 1. VPS / VM Prerequisites
+- Linux VM (Ubuntu 22.04+ or Debian 12) with public IP, ports 80 and 443 open in firewall.
+- k3s installed:
   ```bash
   curl -sfL https://get.k3s.io | sh -
   export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
   ```
-- **Helm Installed:**
+- Helm v3 installed:
   ```bash
   curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   ```
-- **DNS Records:**
-  Configure public DNS A records pointing to your VPS public IP:
-  - `shop.yourdomain.com` $\rightarrow$ `<VPS_IP>`
-  - `api.yourdomain.com` $\rightarrow$ `<VPS_IP>`
-  - `dashboard.yourdomain.com` $\rightarrow$ `<VPS_IP>`
+- Kubernetes secret for GHCR image pulling (if using private registry):
+  ```bash
+  kubectl create secret docker-registry ghcr-creds \
+    --namespace urumi \
+    --docker-server=ghcr.io \
+    --docker-username=<GITHUB_USERNAME> \
+    --docker-password=<GITHUB_PAT>
+  ```
 
-### Step-by-Step Production Deployment
-1. Build and push production container images to your registry (e.g., GitHub Container Registry):
-   ```bash
-   REGISTRY="ghcr.io/your-org"
-   docker build -t ${REGISTRY}/urumi-gateway:0.1.0 ./apps/gateway && docker push ${REGISTRY}/urumi-gateway:0.1.0
-   docker build -t ${REGISTRY}/urumi-dashboard:0.1.0 ./apps/dashboard && docker push ${REGISTRY}/urumi-dashboard:0.1.0
-   docker build -t ${REGISTRY}/urumi-woo-mcp:0.1.0 ./apps/woo-mcp && docker push ${REGISTRY}/urumi-woo-mcp:0.1.0
-   docker build -t ${REGISTRY}/urumi-github-mcp:0.1.0 ./apps/github-mcp && docker push ${REGISTRY}/urumi-github-mcp:0.1.0
-   docker build -t ${REGISTRY}/urumi-weather-mcp:0.1.0 ./apps/weather-mcp && docker push ${REGISTRY}/urumi-weather-mcp:0.1.0
-   ```
+#### 2. Helm Values Hierarchy & Ordering
+Production deployment uses a 3-tier values hierarchy applied in strict order:
+1. `infra/helm/urumi/values.yaml` (base defaults and schemas)
+2. `infra/helm/urumi/values-prod.yaml` (production settings: traefik, local-path storage, 5Gi sizes)
+3. `infra/helm/urumi/values-gcp.yaml` (GCP live overrides: nip.io public domains, GHCR image references, 1 replica)
 
-2. Review and configure `infra/helm/urumi/values-prod.yaml`:
-   - Set `ingress.className: "traefik"` (k3s default).
-   - Set your real public domain names under `ingress.hosts`.
-   - Update image repositories to your registry URLs.
-   - Confirm storage classes: `local-path` is used by default in k3s.
-   - Confirm replica constraints: Keep `gateway.replicas: 1` (in-memory SSE session constraint) and `wordpress.replicas: 1` (ReadWriteOnce storage constraint).
+#### 3. Execute Helm Deployment
+Deploy or upgrade the release, passing sensitive credentials securely via `--set`:
+```bash
+helm upgrade --install urumi infra/helm/urumi \
+  --namespace urumi --create-namespace \
+  -f infra/helm/urumi/values.yaml \
+  -f infra/helm/urumi/values-prod.yaml \
+  -f infra/helm/urumi/values-gcp.yaml \
+  --set secrets.adminPassword="<STRONG_ADMIN_PASSWORD>" \
+  --set secrets.memberPassword="<STRONG_MEMBER_PASSWORD>" \
+  --set secrets.jwtSecret="<MIN_32_CHAR_JWT_SECRET>" \
+  --set secrets.llmApiKey="<YOUR_LLM_API_KEY>" \
+  --set secrets.githubToken="<YOUR_GITHUB_PAT>"
+```
 
-3. Deploy using Helm, passing production secrets securely:
-   ```bash
-   helm upgrade --install urumi infra/helm/urumi \
-     --namespace urumi --create-namespace \
-     -f infra/helm/urumi/values.yaml \
-     -f infra/helm/urumi/values-prod.yaml \
-     --set secrets.adminPassword="<STRONG_ADMIN_PASSWORD>" \
-     --set secrets.memberPassword="<STRONG_MEMBER_PASSWORD>" \
-     --set secrets.jwtSecret="<MIN_32_CHAR_JWT_SECRET>" \
-     --set secrets.llmApiKey="<YOUR_LLM_API_KEY>" \
-     --set secrets.githubToken="<YOUR_GITHUB_PAT>"
-   ```
+#### 4. Secret Management & Upgrade Safety
+- Auto-generated database passwords, JWT secrets, and AES-256 master keys are preserved across subsequent `helm upgrade` commands via the chart's built-in `lookup` function.
+- Production secrets (`adminPassword`, `memberPassword`, `jwtSecret`, `llmApiKey`, `githubToken`) should never be committed into Git repositories. Pass them via `--set` or an untracked `secrets-prod.yaml` file.
 
-4. Verify pod and PVC status:
-   ```bash
-   kubectl get pods,pvc,ingress -n urumi
-   ```
+#### 5. Verify Pod, PVC, and Ingress Status
+```bash
+# Check workload readiness
+kubectl get pods,pvc,ingress -n urumi
 
-5. Seed WooCommerce in the production WordPress instance:
-   ```bash
-   # Run the seed script targeting the production cluster context/namespace
-   ./infra/scripts/seed-woo.sh
-   ```
+# Verify Gateway health endpoints
+curl -s -k https://api.34.14.187.15.nip.io/health/live
+# Expected: {"status":"healthy"}
 
-6. Rollback if needed:
-   ```bash
-   helm history urumi -n urumi
-   helm rollback urumi 1 -n urumi
-   ```
+curl -s -k https://api.34.14.187.15.nip.io/health/ready
+# Expected: {"status":"ready"}
+```
+
+#### 6. Seed WooCommerce Store (Initial Setup Only)
+```bash
+./infra/scripts/seed-woo.sh
+```
+
+#### 7. Inspect Release History & Safe Rollback
+```bash
+# View release history
+helm history urumi -n urumi
+
+# Rollback to revision 1 if necessary
+helm rollback urumi 1 -n urumi
+```
+*Note: Rolling back preserves persistent volume claims and existing database data.*
 
 ---
 

@@ -230,18 +230,23 @@ The Gateway runs a background health check loop every 30 seconds (`clientManager
 The Chat Agent (`/api/chat`) orchestrates multi-turn LLM reasoning with automated tool execution:
 
 1. **User Identity & Role:** The Gateway extracts `userId` and `userRole` from the verified JWT cookie (`req.user`).
-2. **Context Assembly:**
+2. **Context Assembly & Dynamic Tool Gating:**
    - The Gateway queries `registry.getAllTools()` and filters them against `isToolAllowed(userRole, tool.namespacedName)`.
    - A system prompt establishes agent identity, current date, and instructions for concise outputs.
+   - If no tools are available or all permissions have been revoked, a dedicated system message informs the model not to hallucinate tool calls.
    - The LLM provider (Groq, Gemini, or OpenAI compatible) is called with conversation history and the filtered tool definitions.
-3. **Tool Execution Loop:**
+3. **Context Budgeting & Token Optimization (`contextBudget.ts`):**
+   - **Tool Result Bounding (`formatAndBoundToolResult`):** Prevents large API responses (such as GitHub issue lists or WooCommerce catalogs) from overwhelming the model's context window. Specialized pruning strips redundant fields from GitHub repositories (reducing payloads by ~80%), while generic array/object bounders ensure valid JSON structure is always preserved.
+   - **Atomic Conversation History Pruning (`boundConversationHistory`):** Groups multi-turn interactions into atomic dialogue blocks (`groupConversationIntoBlocks`). Older turns are pruned first while keeping assistant `tool_calls` and corresponding `tool` responses paired together (`sanitizeMessageSequence`), preventing OpenAI/Groq `400 Bad Request` schema violations.
+   - **Error Recovery (413 & 400):** If an LLM provider returns a 413 Payload Too Large / TPM Rate Limit, the gateway returns a clear actionable error. If the provider returns a 400 error due to hallucinated or malformed tool generation, the gateway intercepts the raw JSON payload, extracts the intended action, checks RBAC permissions, and returns a graceful denial or guidance message without crashing.
+4. **Tool Execution Loop:**
    - If the LLM generates one or more tool calls:
-     - The Gateway intercepts the tool call before dispatching.
-     - It verifies tool presence in the registry and confirms user permissions.
-     - If unauthorized, execution halts, a user-friendly denial message is generated, and a `denied` audit entry is recorded.
-     - If authorized, the tool is executed via `clientManager.callToolWithTimeout`.
-     - Tool results are converted to text and appended as a `tool` role message for the next LLM turn (up to 5 iterations).
-4. **User Attribution & Audit Logging:**
+     - The Gateway intercepts each tool call before dispatching.
+     - It resolves namespaced identifiers (handling dot-to-underscore normalization `server.tool` $\rightarrow$ `server__tool`).
+     - It confirms user permissions via `isToolAllowed`. If unauthorized, execution halts, a user-friendly denial message is generated, and a `denied` audit entry is recorded.
+     - If authorized, arguments are sanitized (`stripNullArgs`) and executed via `clientManager.callToolWithTimeout`.
+     - Tool results are bounded and appended as a `tool` role message for the next LLM turn (bounded to a maximum of 5 iterations).
+5. **User Attribution & Audit Logging:**
    - Every executed tool call (whether successful, failed, timed out, or denied) writes to the `audit_logs` table:
      - `userId`: Captured from the authenticated session.
      - `serverId`: Associated upstream server database ID.
@@ -257,19 +262,22 @@ The Chat Agent (`/api/chat`) orchestrates multi-turn LLM reasoning with automate
 
 ## 7. Local vs. Production Deployment Differences
 
-The repository uses an identical unified Helm chart (`infra/helm/urumi`), adapting environments cleanly via values files:
+The repository uses an identical unified Helm chart (`infra/helm/urumi`), adapting environments cleanly via layered values files:
 
-| Dimension | Local Development (`values-local.yaml`) | Production VPS / k3s (`values-prod.yaml`) |
-| :--- | :--- | :--- |
-| **Cluster Runtime** | Local Kind cluster (`urumi-local`) on Docker | Lightweight k3s or managed Kubernetes on Linux VPS |
-| **DNS Resolution** | Static `/etc/hosts` mappings pointing to `127.0.0.1` (`shop.urumi.local`, `api.urumi.local`, `dashboard.urumi.local`) | Public DNS A/CNAME records pointing to VPS public IP (`shop.example.com`, etc.) |
-| **Ingress Controller** | `ingress-nginx` (applied directly to Kind via nodePort 80/443) | `traefik` (k3s built-in default) or `ingress-nginx` |
-| **TLS / SSL** | Plain HTTP | Terminated at Ingress / Load Balancer or via `cert-manager` |
-| **Container Images** | Locally built Docker images loaded directly into Kind runtime (`imagePullPolicy: Never`) | Remote container registry images (`ghcr.io/...`, `pullPolicy: IfNotPresent`) |
-| **Storage Class** | Default Kind HostPath storage | `local-path` (k3s default) or cloud provider CSI (`gp3`, `standard`) |
-| **Database Replicas** | Single replica (PostgreSQL & MariaDB) | Single replica StatefulSets with persistent volume retention |
-| **Application Replicas**| Single replica for all workloads | Scaled stateless workloads (`dashboard: 2`, `githubMcp: 2`, `weatherMcp: 2`); `gateway: 1` (SSE constraint); `wordpress: 1` (RWO constraint) |
-| **Secret Provisioning**| Local test credentials (`admin123` / `member123`) committed to values file | Empty placeholders; credentials passed at deploy time via `--set` or private secret files |
+| Dimension | Local Development (`values-local.yaml`) | Production Baseline (`values-prod.yaml`) | Live GCP Deployment (`values-gcp.yaml`) |
+| :--- | :--- | :--- | :--- |
+| **Cluster Runtime** | Local Kind cluster (`urumi-local`) on Docker | Lightweight k3s or managed K8s on Linux VPS | k3s v1.28+ on Google Cloud Compute Engine VM |
+| **DNS Resolution** | Static `/etc/hosts` mappings pointing to `127.0.0.1` (`shop.urumi.local`, etc.) | Public DNS A/CNAME records pointing to public IP | Public `nip.io` wildcard DNS: `*.34.14.187.15.nip.io` |
+| **Ingress Controller** | `ingress-nginx` (nodePort 80/443) | `traefik` (k3s default) or `ingress-nginx` | `traefik` (k3s built-in, class `traefik`) |
+| **TLS / SSL** | Plain HTTP | Terminated at Ingress / Load Balancer or cert-manager | HTTPS terminated at Traefik Ingress |
+| **Container Images** | Locally built Docker images loaded directly into Kind (`imagePullPolicy: Never`) | Remote registry template placeholders (`pullPolicy: IfNotPresent`) | Hosted on GitHub Container Registry: `ghcr.io/hemanshu004/urumi-*` (`pullPolicy: Always`) |
+| **Storage Class** | Default Kind HostPath storage | `local-path` (k3s default) or cloud CSI | `local-path` (k3s default RWO storage) |
+| **Database Storage** | 1 GiB WordPress DB, 2 GiB Gateway DB | 5 GiB WordPress DB, 5 GiB Gateway DB | 5 GiB WordPress DB, 5 GiB Gateway DB (`local-path`) |
+| **WordPress Storage** | 1 GiB PVC (`local-path`) | 5 GiB PVC (`local-path`, replicas: 1) | 5 GiB PVC (`local-path`, replicas: 1) |
+| **Stateless Workloads** | Single replica | Scaled recommendations (`dashboard: 2`, `githubMcp: 2`, `weatherMcp: 2`) | 1 replica per workload (optimized for single VM footprint) |
+| **Stateful Workloads** | `gateway: 1` (SSE constraint); `wordpress: 1` (RWO) | `gateway: 1` (SSE constraint); `wordpress: 1` (RWO) | `gateway: 1` (SSE constraint); `wordpress: 1` (RWO) |
+| **Secret Provisioning** | Local test credentials (`admin123` / `member123`) committed | Empty placeholders; passed at deploy time via `--set` | Sensitive credentials passed via `--set`; auto-generated secrets preserved via Helm `lookup` |
+| **Image Pull Secrets** | None required (local Kind images) | Configurable if using private registry | `ghcr-creds` Kubernetes Secret in namespace `urumi` |
 
 ---
 

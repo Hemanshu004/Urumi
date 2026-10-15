@@ -110,15 +110,18 @@ When administrators register upstream server URLs, the Gateway executes comprehe
 - **Database Logs:** Passwords and raw API keys are never written to audit tables or application log files.
 - **API Responses:** `GET /api/servers` redacts URLs, timeouts, and credential hashes for non-admin users. Error messages returned to users provide actionable guidance without dumping internal stack traces or database schema details.
 
-### 6. Kubernetes Network Policies & Container Hardening
+### 6. Kubernetes Network Policies, Ingress Perimeter & Container Hardening
 - **Service Account Hardening:** The shared service account `urumi-sa` sets `automountServiceAccountToken: false` across all workloads, preventing compromised containers from stealing Kubernetes API tokens.
-- **Pod-to-Pod Network Policies:**
-  - `default-deny-all` blocks all unauthorized ingress traffic across the namespace.
-  - Only the ingress controller can route traffic to Gateway (port 3000), Dashboard (port 8080), and WordPress (port 80).
-  - Upstream MCP microservices (ports 3001, 3002, 3003) and databases (ports 5432, 3306) are ClusterIP services with no external ingress routes.
-  - Gateway is the only pod authorized to communicate with upstream MCP pods and `gateway-db`.
-  - `woo-mcp` is the only pod authorized to communicate with WordPress on internal port 80.
-  - WordPress is the only pod authorized to communicate with MariaDB on port 3306.
+- **Layer-7 Ingress Perimeter Boundary:**
+  - Ingress routes are exposed solely for the Dashboard (`port 80 $\rightarrow$ 8080`), API Gateway (`port 3000`), and WooCommerce Storefront (`port 80`).
+  - Upstream MCP microservices (`woo-mcp:3001`, `github-mcp:3002`, `weather-mcp:3003`) and databases (`gateway-db:5432`, `wordpress-db:3306`) are strictly internal **ClusterIP** services with zero Ingress paths defined.
+  - This guarantees that external traffic can never bypass the Gateway or communicate directly with upstream tool microservices or database engines.
+- **Pod-to-Pod Declarative Network Policies:**
+  - The Helm chart defines declarative Kubernetes `NetworkPolicy` resources (`infra/helm/urumi/templates/network-policies.yaml`) implementing `default-deny-all` ingress and granting explicit pod-to-pod channels:
+    - Gateway $\rightarrow$ `woo-mcp`, `github-mcp`, `weather-mcp`, and `gateway-db`.
+    - `woo-mcp` $\rightarrow$ WordPress.
+    - WordPress $\rightarrow$ MariaDB.
+  - *CNI Enforcement Clarification:* In Kubernetes, NetworkPolicies are declarative specifications enforced by the Container Network Interface (CNI) plugin. In local Kind clusters (default Kindnet CNI) and standard k3s (default Flannel CNI without an active policy engine), NetworkPolicies are stored in the API server but packet-level filtering requires an active policy controller (e.g., Calico or kube-router). Perimeter ingress routing isolation remains the verified active security boundary.
 - **Least-Privilege Containers:**
   - `urumi-gateway`, `woo-mcp`, `github-mcp`, and `weather-mcp` specify `runAsNonRoot: true` and `runAsUser: 1000` (Node user).
   - `urumi-dashboard` runs as unprivileged user `runAsUser: 101` (`nginx-unprivileged`).
@@ -132,10 +135,11 @@ When administrators register upstream server URLs, the Gateway executes comprehe
 | **API Key Protection** | **VERIFIED** | Salted bcrypt hashing, one-time plaintext display, immediate revocation check on every request. |
 | **Tool-Level RBAC** | **VERIFIED** | Enforced at LLM context assembly, `/mcp` tool discovery, and Gateway execution dispatch. Denied calls return HTTP/JSON-RPC 403 and log audit records. |
 | **SSRF Prevention** | **VERIFIED** | Comprehensive IP range validation, cloud metadata blocking, private RFC1918 deny-by-default with strict internal service allowlist. |
-| **Network Isolation** | **VERIFIED** | Kubernetes NetworkPolicies enforce default-deny; upstreams and databases have no external Ingress access; service account token auto-mounting disabled. |
+| **Ingress Perimeter Isolation** | **VERIFIED** | Upstreams and databases are deployed strictly as ClusterIP services with no Ingress rules; external access terminates at Gateway or Dashboard. |
+| **NetworkPolicy Enforcement** | **VERIFIED (Declarative)** | Helm manifests specify `default-deny-all` and explicit pod-to-pod rules; active kernel filtering depends on CNI provider policy controller capabilities. |
 | **Non-Root Execution** | **VERIFIED (Partial)** | Configured for Gateway, MCP servers (UID 1000), and Dashboard (UID 101). *Unresolved:* Database pods (PostgreSQL, MariaDB) and WordPress do not currently enforce non-root security contexts in Helm templates. |
 | **Audit Attribution** | **VERIFIED** | Persistent audit records capture `userId`, `serverId`, `toolName`, `requestParams`, `outcome`, `durationMs`, and precise timestamps. |
 | **Indirect Prompt Injection** | **UNRESOLVED RISK** | Poisoned text returned from upstream APIs (e.g. GitHub issues) enters the LLM context. Mitigated via concise output requirements and strict tool permissions, but cannot be guaranteed by infrastructure alone. |
 | **Shared Upstream Credentials** | **UNRESOLVED RISK** | Upstream tools execute with the privileges of the shared platform credentials (e.g. global WooCommerce consumer key). User isolation relies entirely on Gateway RBAC rather than native upstream user accounts. |
 | **Encryption at Rest** | **UNRESOLVED RISK** | Dynamic server credentials in PostgreSQL are encrypted with AES-256-GCM. However, persistent volumes (PVCs) for PostgreSQL, MariaDB, and WordPress content depend on underlying host/cloud disk encryption; encryption at rest is not configured by the Helm chart itself. |
-| **Ingress TLS Termination** | **UNRESOLVED RISK** | The Helm chart generates HTTP Ingress rules. Automated TLS and cert-manager integration must be provided externally at the ingress controller or load balancer level. |
+| **Ingress TLS Termination** | **VERIFIED (GCP) / UNRESOLVED (Chart)** | Live GCP environment terminates HTTPS at Traefik Ingress. However, the Helm chart templates do not auto-generate cert-manager TLS certificates; external TLS management is required. |

@@ -1,0 +1,47 @@
+# ============================================================
+# Urumi Helm Chart - Live GCP Environment Overrides
+# Configured for GCP VM running k3s with Traefik Ingress
+# ============================================================
+
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    shop: shop.34.14.187.15.nip.io
+    api: api.34.14.187.15.nip.io
+    dashboard: dashboard.34.14.187.15.nip.io
+
+gateway:
+  replicas: 1
+  image:
+    repository: ghcr.io/hemanshu004/urumi-gateway
+    tag: latest
+    pullPolicy: Always
+
+dashboard:
+  replicas: 1
+  image:
+    repository: ghcr.io/hemanshu004/urumi-dashboard
+    tag: latest
+    pullPolicy: Always
+
+githubMcp:
+  replicas: 1
+  image:
+    repository: ghcr.io/hemanshu004/urumi-github-mcp
+    tag: latest
+    pullPolicy: Always
+
+weatherMcp:
+  replicas: 1
+  image:
+    repository: ghcr.io/hemanshu004/urumi-weather-mcp
+    tag: latest
+    pullPolicy: Always
+
+wooMcp:
+  replicas: 1
+  image:
+    repository: ghcr.io/hemanshu004/urumi-woo-mcp
+    tag: latest
+    pullPolicy: Always
