@@ -268,6 +268,7 @@ curl -s http://api.urumi.local/
 | **Urumi Dashboard** | Member | `http://dashboard.urumi.local` | `member@urumi.local` | `member123` | Seeded via `values-local.yaml` |
 | **WordPress / WooCommerce** | Store Administrator | `http://shop.urumi.local/wp-login.php` | `admin` | `password` | Seeded via `infra/scripts/seed-woo.sh` |
 
+Note: I have intentionally kept the same credentials for both live and local demo so it is easier to access and test. i will changed later if needed for better security.
 ---
 
 ## 4. WooCommerce Workflow
