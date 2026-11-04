@@ -25,7 +25,7 @@ The Urumi platform is deployed and verified across two active environments:
 | :--- | :--- | :--- |
 | **Administrative Dashboard** | [http://dashboard.urumi.local](http://dashboard.urumi.local) | [https://dashboard.34.14.187.15.nip.io](https://dashboard.34.14.187.15.nip.io) |
 | **API Gateway Backend** | [http://api.urumi.local](http://api.urumi.local) | [https://api.34.14.187.15.nip.io](https://api.34.14.187.15.nip.io) |
-| **WooCommerce Storefront** | [http://shop.urumi.local](http://shop.urumi.local) | [https://shop.34.14.187.15.nip.io](https://shop.34.14.187.15.nip.io) |
+| **WooCommerce Storefront** | [http://shop.urumi.local/shop/](http://shop.urumi.local/shop/) | [https://shop.34.14.187.15.nip.io](https://shop.34.14.187.15.nip.io) |
 | **External MCP Endpoint** | `http://api.urumi.local/mcp` | `https://api.34.14.187.15.nip.io/mcp` |
 | **Ingress Controller** | `ingress-nginx` (nodePort 80/443) | `traefik` (k3s built-in) |
 | **Storage Class** | Standard Kind HostPath | `local-path` (k3s default RWO storage) |
@@ -255,7 +255,7 @@ curl -s http://api.urumi.local/
 
 ### Verified Local URLs
 - **Dashboard:** [http://dashboard.urumi.local](http://dashboard.urumi.local)
-- **Storefront:** [http://shop.urumi.local](http://shop.urumi.local)
+- **Storefront:** [http://shop.urumi.local/shop/](http://shop.urumi.local/shop/)
 - **Storefront Admin:** [http://shop.urumi.local/wp-admin](http://shop.urumi.local/wp-admin)
 - **API Gateway:** [http://api.urumi.local](http://api.urumi.local)
 
