@@ -47,7 +47,7 @@ export function createMcpServerInstance() {
     const startedAt = new Date();
     const toolName = request.params.name;
     const args = request.params.arguments || {};
-    
+
     const ctx = mcpContext.getStore();
     const userId = ctx?.userId ?? null;
     const role = ctx?.role || "member";
@@ -176,8 +176,15 @@ export function createMcpServerInstance() {
   return server;
 }
 
-export function setupMcpServer(app: express.Application) {
-  const sseTransports = new Map<string, SSEServerTransport>();
+/** Tracks an active SSE session with its owner identity. */
+interface SseSession {
+  transport: SSEServerTransport;
+  userId: number;
+  keyId: number;
+}
+
+export function setupMcpServer(app: express.Application): void {
+  const sseSessions = new Map<string, SseSession>();
   const statelessHandler = createMcpHandler(() => createMcpServerInstance() as any);
 
   app.use("/mcp", express.raw({ type: "*/*" }), asyncHandler(async (req, res, next) => {
@@ -186,7 +193,7 @@ export function setupMcpServer(app: express.Application) {
       return res.status(401).json({ error: "Missing or invalid Authorization header" });
     }
     const token = authHeader.substring(7);
-    
+
     const activeKeys = await db.select({
       id: api_keys.id,
       user_id: api_keys.user_id,
@@ -218,32 +225,113 @@ export function setupMcpServer(app: express.Application) {
     try {
       await mcpContext.run({ userId: matchedUserId, keyId: matchedKeyId || undefined, role, source: "external" }, async () => {
         if (req.method === "GET" && (req.url === "/" || req.url === "" || req.url === "/sse" || req.url === "/sse/")) {
+          if (matchedUserId === null || matchedKeyId === null) {
+            return res.status(401).json({ error: "Invalid or revoked API key" });
+          }
+
+          if (res.writableEnded || res.destroyed) {
+            return;
+          }
+
           const transport = new SSEServerTransport("/mcp/message", res as any);
           const serverInstance = createMcpServerInstance();
-          await serverInstance.connect(transport);
-          sseTransports.set(transport.sessionId, transport);
+          let cleanupPromise: Promise<void> | null = null;
+          let connectPromise: Promise<void> | null = null;
+
+          const cleanup = (): Promise<void> => {
+            if (cleanupPromise) {
+              return cleanupPromise;
+            }
+            cleanupPromise = (async () => {
+              sseSessions.delete(transport.sessionId);
+              try {
+                if (connectPromise) {
+                  try {
+                    let timer: NodeJS.Timeout;
+                    await Promise.race([
+                      connectPromise,
+                      new Promise<void>((resolve) => {
+                        timer = setTimeout(resolve, 5000);
+                      }),
+                    ]).finally(() => clearTimeout(timer));
+                  } catch {
+                    // connect error handled by the route try/catch
+                  }
+                }
+                await serverInstance.close();
+              } catch (err: any) {
+                logger.error("Failed to close SSE server instance", { error: err.message });
+              } finally {
+                try {
+                  await transport.close();
+                } catch { }
+                if (!res.writableEnded && !res.destroyed) {
+                  try {
+                    res.end();
+                  } catch { }
+                }
+              }
+            })();
+            return cleanupPromise;
+          };
+
           res.on("close", () => {
-            sseTransports.delete(transport.sessionId);
-            serverInstance.close().catch(err => logger.error("Failed to close SSE server instance", { error: err.message }));
+            void cleanup();
           });
+
+          try {
+            connectPromise = serverInstance.connect(transport);
+            await connectPromise;
+
+            if (res.writableEnded || res.destroyed || cleanupPromise !== null) {
+              await cleanup();
+              try {
+                await transport.close();
+              } catch { }
+              return;
+            }
+
+            sseSessions.set(transport.sessionId, {
+              transport,
+              userId: matchedUserId,
+              keyId: matchedKeyId,
+            });
+          } catch (connectError: any) {
+            if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+              res.status(500).json({
+                error: "Failed to initialize SSE connection",
+              });
+            }
+
+            await cleanup();
+            throw connectError;
+          }
+
           return;
         }
 
         if (req.method === "POST" && (req.url.startsWith("/message") || req.url.startsWith("/mcp/message"))) {
-          const sessionId = req.query.sessionId as string;
-          const transport = sseTransports.get(sessionId);
-          if (!transport) {
+          if (typeof req.query.sessionId !== "string" || !req.query.sessionId) {
+            return res.status(400).json({ error: "Missing or malformed sessionId" });
+          }
+          const sessionId = req.query.sessionId;
+          const session = sseSessions.get(sessionId);
+          if (!session) {
             return res.status(404).json({ error: "Session not found" });
           }
-          
+
+          if (session.userId !== matchedUserId || session.keyId !== matchedKeyId) {
+            return res.status(403).json({ error: "Session ownership mismatch" });
+          }
+
           let parsedBody;
           try {
             parsedBody = JSON.parse(req.body.toString("utf8"));
           } catch (e) {
             return res.status(400).json({ error: "Invalid JSON" });
           }
-          
-          await transport.handlePostMessage(req as any, res as any, parsedBody);
+
+          await session.transport.handlePostMessage(req as any, res as any, parsedBody);
           return;
         }
 
@@ -253,7 +341,7 @@ export function setupMcpServer(app: express.Application) {
           headers: req.headers as any,
           body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined
         });
-      
+
         const webRes = await statelessHandler.fetch(webReq);
         res.status(webRes.status);
         webRes.headers.forEach((value, key) => {
