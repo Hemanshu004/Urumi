@@ -153,6 +153,13 @@ gatewayDb:
   persistence:
     size: 2Gi
     storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 gateway:
   image:
@@ -169,3 +176,11 @@ gateway:
     limits:
       cpu: 250m
       memory: 256Mi
+  waitForDb:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi

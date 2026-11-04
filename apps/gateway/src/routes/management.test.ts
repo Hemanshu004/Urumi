@@ -228,5 +228,59 @@ describe("Management APIs", () => {
       expect(clientManager.disconnectServer).toHaveBeenCalledWith("test-server");
       expect(registry.clearServerTools).toHaveBeenCalledWith("test-server");
     });
+
+    it("Admin GET /servers/:id returns server details but never returns credential_encrypted", async () => {
+      runAs({ id: 1, role: "admin", email: "admin@test.com" });
+      (db as any).limit.mockResolvedValueOnce([
+        {
+          id: 1,
+          name: "test-server",
+          url: "http://test-server",
+          credential_encrypted: "vault:v1:aes-256-gcm:secret-ciphertext",
+          timeout_ms: 30000,
+          enabled: true,
+          builtin: false,
+          status: "connected",
+          status_message: null,
+          last_health_check: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+      ]);
+
+      const res = await request(app).get("/servers/1");
+      expect(res.status).toBe(200);
+      expect(res.body.server).toBeDefined();
+      expect(res.body.server.id).toBe(1);
+      expect(res.body.server.name).toBe("test-server");
+      expect(res.body.server.url).toBe("http://test-server");
+      expect(res.body.server.timeout_ms).toBe(30000);
+      expect(res.body.server.enabled).toBe(true);
+      expect(res.body.server.credential_encrypted).toBeUndefined();
+      expect("credential_encrypted" in res.body.server).toBe(false);
+    });
+
+    it("Member cannot access GET /servers/:id", async () => {
+      runAs({ id: 2, role: "member", email: "member@test.com" });
+      const res = await request(app).get("/servers/1");
+      expect(res.status).toBe(403);
+    });
+
+    it("Admin receives 404 when server not found on GET /servers/:id", async () => {
+      runAs({ id: 1, role: "admin", email: "admin@test.com" });
+      (db as any).limit.mockResolvedValueOnce([]);
+
+      const res = await request(app).get("/servers/999");
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: "Server not found" });
+    });
+
+    it("Admin receives 400 for invalid server ID on GET /servers/:id", async () => {
+      runAs({ id: 1, role: "admin", email: "admin@test.com" });
+
+      const res = await request(app).get("/servers/invalid");
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "Invalid ID" });
+    });
   });
 });
