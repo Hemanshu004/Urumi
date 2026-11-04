@@ -47,7 +47,7 @@ export function createMcpServerInstance() {
     const startedAt = new Date();
     const toolName = request.params.name;
     const args = request.params.arguments || {};
-    
+
     const ctx = mcpContext.getStore();
     const userId = ctx?.userId ?? null;
     const role = ctx?.role || "member";
@@ -193,7 +193,7 @@ export function setupMcpServer(app: express.Application): void {
       return res.status(401).json({ error: "Missing or invalid Authorization header" });
     }
     const token = authHeader.substring(7);
-    
+
     const activeKeys = await db.select({
       id: api_keys.id,
       user_id: api_keys.user_id,
@@ -264,11 +264,11 @@ export function setupMcpServer(app: express.Application): void {
               } finally {
                 try {
                   await transport.close();
-                } catch {}
+                } catch { }
                 if (!res.writableEnded && !res.destroyed) {
                   try {
                     res.end();
-                  } catch {}
+                  } catch { }
                 }
               }
             })();
@@ -287,7 +287,7 @@ export function setupMcpServer(app: express.Application): void {
               await cleanup();
               try {
                 await transport.close();
-              } catch {}
+              } catch { }
               return;
             }
 
@@ -297,6 +297,12 @@ export function setupMcpServer(app: express.Application): void {
               keyId: matchedKeyId,
             });
           } catch (connectError: any) {
+            if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+              res.status(500).json({
+                error: "Failed to initialize SSE connection",
+              });
+            }
+
             await cleanup();
             throw connectError;
           }
@@ -317,14 +323,14 @@ export function setupMcpServer(app: express.Application): void {
           if (session.userId !== matchedUserId || session.keyId !== matchedKeyId) {
             return res.status(403).json({ error: "Session ownership mismatch" });
           }
-          
+
           let parsedBody;
           try {
             parsedBody = JSON.parse(req.body.toString("utf8"));
           } catch (e) {
             return res.status(400).json({ error: "Invalid JSON" });
           }
-          
+
           await session.transport.handlePostMessage(req as any, res as any, parsedBody);
           return;
         }
@@ -335,7 +341,7 @@ export function setupMcpServer(app: express.Application): void {
           headers: req.headers as any,
           body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined
         });
-      
+
         const webRes = await statelessHandler.fetch(webReq);
         res.status(webRes.status);
         webRes.headers.forEach((value, key) => {

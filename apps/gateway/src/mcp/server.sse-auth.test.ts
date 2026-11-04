@@ -396,47 +396,83 @@ describe('MCP SSE Session Ownership and Lifecycle', () => {
   });
 
   // 12. Failed server connection initialization closes the server instance
-  it('12: failed server connection initialization closes the server instance', async () => {
+  // 12. Failed server connection initialization returns HTTP 500
+  // and closes the server instance.
+  it('12: failed server connection initialization returns HTTP 500 and closes the server instance', async () => {
     let closeCompleted = false;
-    let resolveCloseCompletion: () => void;
+    let resolveCloseCompletion!: () => void;
+
     const closeCompletionPromise = new Promise<void>((resolve) => {
       resolveCloseCompletion = resolve;
     });
 
     const origClose = Server.prototype.close;
-    const closeSpy = vi.spyOn(Server.prototype, 'close').mockImplementation(async function (this: any) {
-      const res = await origClose.call(this);
-      closeCompleted = true;
-      resolveCloseCompletion();
-      return res;
-    });
+
+    const closeSpy = vi.spyOn(Server.prototype, 'close')
+      .mockImplementation(async function (this: any) {
+        const result = await origClose.call(this);
+        closeCompleted = true;
+        resolveCloseCompletion();
+        return result;
+      });
 
     let attemptedSessionId: string | undefined;
-    const connectSpy = vi.spyOn(Server.prototype, 'connect').mockImplementation(async function (this: any, transport: any) {
-      attemptedSessionId = transport.sessionId;
-      throw new Error('Connection initialization failed');
-    });
+
+    const connectSpy = vi.spyOn(Server.prototype, 'connect')
+      .mockImplementation(async function (this: any, transport: any) {
+        attemptedSessionId = transport.sessionId;
+        throw new Error('Connection initialization failed');
+      });
 
     const clientReq = http.get(
       `${baseUrl}/mcp/sse`,
-      { headers: { Authorization: `Bearer ${TOKEN_A}` } }
+      {
+        headers: { Authorization: `Bearer ${TOKEN_A}` },
+      }
     );
+
     activeSseRequests.push(clientReq);
-    clientReq.on('error', () => {/* expected */});
 
-    // Wait deterministically with bounded timeout for cleanup completion
-    await withTimeout(closeCompletionPromise, 3000, 'Cleanup did not complete in time on init failure');
+    const initialResponsePromise = new Promise<http.IncomingMessage>(
+      (resolve, reject) => {
+        clientReq.once('response', resolve);
+        clientReq.once('error', reject);
+      }
+    );
 
+    const initialResponse = await withTimeout(
+      initialResponsePromise,
+      3000,
+      'Initial SSE response was not received'
+    );
+
+    expect(initialResponse.statusCode).toBe(500);
+
+    // Consume the response body and allow the connection to close.
+    initialResponse.resume();
+
+    // Wait for server cleanup to complete.
+    await withTimeout(
+      closeCompletionPromise,
+      3000,
+      'Cleanup did not complete in time on init failure'
+    );
+
+    expect(connectSpy).toHaveBeenCalled();
     expect(closeSpy).toHaveBeenCalled();
     expect(closeCompleted).toBe(true);
     expect(attemptedSessionId).toBeDefined();
 
-    // Observable behavior: subsequent POST must return 404
+    // Failed sessions must not remain registered.
     const res = await request(server)
       .post(`/mcp/message?sessionId=${attemptedSessionId}`)
       .set('Authorization', `Bearer ${TOKEN_A}`)
       .set('Content-Type', 'application/json')
-      .send(JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 1 }));
+      .send(JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'ping',
+        id: 1,
+      }));
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Session not found' });
@@ -513,7 +549,7 @@ describe('MCP SSE Session Ownership and Lifecycle', () => {
       transportCloseCount++;
       const result = await origTransportClose.call(this);
       if (transportCloseCount === 3) {
-        resolveLateCleanup();
+        setImmediate(() => resolveLateCleanup());
       }
       return result;
     });
