@@ -104,7 +104,8 @@ serversRouter.get("/:id", requireAdmin, asyncHandler(async (req, res) => {
   const [server] = await db.select().from(upstream_servers).where(eq(upstream_servers.id, id)).limit(1);
   if (!server) return res.status(404).json({ error: "Server not found" });
   
-  res.json({ server });
+  const { credential_encrypted, ...safeServer } = server;
+  res.json({ server: safeServer });
 }));
 
 const patchSchema = z.object({
